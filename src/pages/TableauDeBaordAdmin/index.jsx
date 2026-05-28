@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Users, Clock, ShieldCheck, Server, BellRing, Activity, LayoutDashboard, UserCheck, FileText, Settings, BarChart3, Menu, Bell, ChevronDown, Check, X, LogOut, TrendingUp, AlertTriangle, Circle, MapPin, Mail, Briefcase } from "lucide-react";
+import { useState , useEffect} from "react";
+import { Users, Clock, ShieldCheck, Server, BellRing, Activity, LayoutDashboard, UserCheck, FileText, Settings, BarChart3, Menu, Bell, ChevronDown, Check, X, LogOut, TrendingUp, AlertTriangle, Circle, MapPin, Mail, Briefcase ,Phone , Building} from "lucide-react";
 
 // ═══════════════════════════════════════════════════════
 //  DONNÉES & CONFIG
@@ -293,9 +293,10 @@ const Sidebar = ({ active, setActive, collapsed, admin, pendingCount }) => {
           }}
           className="logout-btn" style={{
             width: "100%", display: "flex", alignItems: "center", gap: 8,
-            background: "transparent", border: "none",
+            background: "rgba(255,255,2255,1)", border: "none" ,
             borderRadius: 8, padding: "9px 10px", color: "#EF4444",
             fontSize: 12, fontWeight: 500, cursor: "pointer",
+            transition: "all 0.3s ease",
           }}>
             <LogOut size={14} /> Déconnexion
           </button>
@@ -633,26 +634,155 @@ const SectionDashboard = ({ cfg, requests, setSection, onApprove, onReject }) =>
 // ═══════════════════════════════════════════════════════
 //  SECTION : DEMANDES DE CONNEXION
 // ═══════════════════════════════════════════════════════
-const SectionRequests = ({ requests, pendingCount, onApprove, onReject }) => {
+const SectionRequests = ({ pendingCount, onApprove, onReject }) => {
   const [openIds, setOpenIds] = useState({});
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // ── Fetch au montage ──────────────────────────────────────────────
+  useEffect(() => {
+    const fetchDemandes = async () => {
+      try {
+        setLoading(true);
+        const token = localStorage.getItem("token"); // adapte si tu stockes ailleurs
+        const res = await fetch("http://localhost:8080/api/admin/demandes", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`Erreur ${res.status}`);
+        const data = await res.json();
+        setRequests(data);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDemandes();
+    const interval = setInterval(fetchDemandes, 30000); // re-fetch toutes les 15s
+
+    return () => clearInterval(interval); // nettoyage au démontage
+  }, []);
 
   const toggle = (id) =>
     setOpenIds(prev => ({ ...prev, [id]: !prev[id] }));
 
+  // ── Helpers de mapping API → affichage ───────────────────────────
+  const getStatus = (statutDemandeAcces) => {
+    if (statutDemandeAcces === "EN_ATTENTE") return "pending";
+    if (statutDemandeAcces === "APPROUVEE")  return "approved";
+    return "rejected";
+  };
+
+  const getInitiales = (prenom, nom) => {
+    const p = prenom?.charAt(0) ?? "";
+    const n = nom?.charAt(0) ?? "";
+    return (p + n).toUpperCase() || "?";
+  };
+
+  const formatDate = (isoString) => {
+    if (!isoString) return "—";
+    return new Date(isoString).toLocaleDateString("fr-FR", {
+      day: "2-digit", month: "short", year: "numeric",
+    });
+  };
+
+  const getRoleLabel = (typeUtilisateur) => {
+    const map = {
+      Usager: "Usager",
+      DPO: "DPO",
+      UtilisateurMetier: "Utilisateur Métier",
+      Administrateur: "Administrateur",
+      CIL: "CIL",
+    };
+    return map[typeUtilisateur] ?? typeUtilisateur ?? "—";
+  };
+
+  // ── États de chargement / erreur ─────────────────────────────────
+  if (loading) return (
+    <div className="slide-in">
+      <PageHeader
+        title="Demandes de connexion"
+        subtitle="Chargement en cours..."
+      />
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {[1, 2, 3].map(i => (
+          <Card key={i} style={{ padding: "14px 18px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              {/* Avatar skeleton */}
+              <div style={{
+                width: 44, height: 44, borderRadius: "50%",
+                background: T.border,
+                animation: "pulse 1.4s ease-in-out infinite",
+              }} />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{
+                  width: "40%", height: 14, borderRadius: 6,
+                  background: T.border,
+                  animation: "pulse 1.4s ease-in-out infinite",
+                }} />
+                <div style={{
+                  width: "25%", height: 11, borderRadius: 6,
+                  background: T.border,
+                  animation: "pulse 1.4s ease-in-out infinite",
+                }} />
+              </div>
+            </div>
+            <style>{`
+              @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.4; }
+              }
+            `}</style>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (error) return (
+    <div className="slide-in">
+      <PageHeader title="Demandes de connexion" subtitle="Erreur de chargement" />
+      <Card style={{ padding: "16px 18px", borderLeft: `3px solid ${T.red}` }}>
+        <span style={{ color: T.red, fontSize: 13 }}>
+          Impossible de charger les demandes : {error}
+        </span>
+      </Card>
+    </div>
+  );
+
+  const pendingReal = requests.filter(r => r.statutDemandeAcces === "EN_ATTENTE").length;
+
+  // ── Rendu principal ───────────────────────────────────────────────
   return (
     <div className="slide-in">
       <PageHeader
         title="Demandes de connexion"
-        subtitle={`${pendingCount} demande${pendingCount > 1 ? "s" : ""} en attente de validation`}
+        subtitle={`${pendingReal} demande${pendingReal > 1 ? "s" : ""} en attente de validation`}
       />
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {requests.map(req => {
-          const isPending = req.status === "pending";
-          const isApproved = req.status === "approved";
-          const isOpen = !!openIds[req.id];
+          const status    = getStatus(req.statutDemandeAcces);
+          const isPending  = status === "pending";
+          const isApproved = status === "approved";
+          const isOpen     = !!openIds[req.idDemande];
+          const initiales  = getInitiales(req.prenom, req.nom);
+          const nomComplet = `${req.prenom ?? ""} ${req.nom ?? ""}`.trim() || req.email;
+
+          // Ligne de détails selon le type d'utilisateur
+          const details = [
+            { icon: <Mail size={11} />,      value: req.email },
+            { icon: <Briefcase size={11} />, value: getRoleLabel(req.typeUtilisateur) },
+            req.ville    && { icon: <MapPin size={11} />,  value: req.ville },
+            req.telephone && { icon: <Phone size={11} />,  value: req.telephone },
+            req.organisme && { icon: <Building size={11} />, value: req.organisme },
+            req.fonction  && { icon: <Briefcase size={11} />, value: req.fonction },
+            { icon: <Clock size={11} />, value: formatDate(req.dateDemande) },
+          ].filter(Boolean);
 
           return (
-            <Card key={req.id} className={isPending ? "card-hover" : ""} style={{
+            <Card key={req.idDemande} className={isPending ? "card-hover" : ""} style={{
               padding: "14px 18px", opacity: isPending ? 1 : 0.65,
               borderLeft: `3px solid ${isPending ? T.green : isApproved ? T.green : T.red}`,
             }}>
@@ -660,26 +790,32 @@ const SectionRequests = ({ requests, pendingCount, onApprove, onReject }) => {
               {/* Ligne principale */}
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 <Avatar
-                  initials={req.avatar} size={44}
+                  initials={initiales} size={44}
                   bg={isPending ? T.greenBg : isApproved ? T.greenBg : T.redBg}
                   color={isPending ? T.green : isApproved ? T.green : T.red}
                   border={isPending ? T.greenBorder : isApproved ? T.greenBorder : T.redBorder}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary }}>{req.user}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary }}>
+                      {nomComplet}
+                    </span>
                     <Badge type={isPending ? "pending" : isApproved ? "active" : "inactive"} />
                   </div>
+                  <span style={{ fontSize: 12, color: T.textSecondary }}>
+                    {getRoleLabel(req.typeUtilisateur)}
+                  </span>
                 </div>
+
                 {isPending ? (
                   <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                    <button onClick={() => onApprove(req.id)} style={{
+                    <button onClick={() => onApprove(req.idDemande)} style={{
                       background: T.greenBg, border: `1px solid ${T.greenBorder}`,
                       borderRadius: 8, padding: "8px 16px", color: T.green,
                       fontSize: 13, fontWeight: 600, cursor: "pointer",
                       display: "flex", alignItems: "center", gap: 5,
                     }}><Check size={13} /> Approuver</button>
-                    <button onClick={() => onReject(req.id)} style={{
+                    <button onClick={() => onReject(req.idDemande)} style={{
                       background: T.redBg, border: `1px solid ${T.redBorder}`,
                       borderRadius: 8, padding: "8px 16px", color: T.red,
                       fontSize: 13, fontWeight: 600, cursor: "pointer",
@@ -702,13 +838,13 @@ const SectionRequests = ({ requests, pendingCount, onApprove, onReject }) => {
 
               {/* Séparateur + Toggle accordéon */}
               <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 10, paddingTop: 8 }}>
-                <button onClick={() => toggle(req.id)} style={{
+                <button onClick={() => toggle(req.idDemande)} style={{
                   background: "none", border: "none", cursor: "pointer",
                   display: "flex", alignItems: "center", gap: 6,
                   color: T.textSecondary, fontSize: 12, padding: 0,
                 }}>
                   <FileText size={13} />
-                  <span>Motif de la demande</span>
+                  <span>Détails de la demande</span>
                   <ChevronDown size={13} style={{
                     transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
                     transition: "transform 0.25s ease",
@@ -718,26 +854,23 @@ const SectionRequests = ({ requests, pendingCount, onApprove, onReject }) => {
 
               {/* Panneau accordéon */}
               <div style={{
-                maxHeight: isOpen ? 240 : 0,
+                maxHeight: isOpen ? 300 : 0,
                 overflow: "hidden",
                 opacity: isOpen ? 1 : 0,
                 transition: "max-height 0.3s ease, opacity 0.3s ease",
               }}>
                 <div style={{
-                  marginTop: 10,
-                  padding: "10px 14px",
-                  background: T.greenBg,
-                  borderRadius: 8,
+                  marginTop: 10, padding: "10px 14px",
+                  background: T.greenBg, borderRadius: 8,
                   borderLeft: `3px solid ${T.greenBorder}`,
                   lineHeight: 1.6,
                 }}>
 
-                  {/* Label */}
                   <div style={{
                     fontSize: 11, fontWeight: 600, textTransform: "uppercase",
                     letterSpacing: "0.05em", color: T.green, marginBottom: 6,
                   }}>
-                    Motif
+                    Informations
                   </div>
 
                   {/* Détails */}
@@ -746,12 +879,7 @@ const SectionRequests = ({ requests, pendingCount, onApprove, onReject }) => {
                     marginBottom: 8, paddingBottom: 8,
                     borderBottom: `1px solid ${T.greenBorder}`,
                   }}>
-                    {[
-                      { icon: <Mail size={11} />,      value: req.email },
-                      { icon: <Briefcase size={11} />, value: req.role },
-                      { icon: <MapPin size={11} />,    value: req.region },
-                      { icon: <Clock size={11} />,     value: req.requestedAt },
-                    ].map(({ icon, value }, i) => (
+                    {details.map(({ icon, value }, i) => (
                       <span key={i} style={{
                         display: "flex", alignItems: "center", gap: 4,
                         fontSize: 12, color: T.textSecondary,
@@ -762,7 +890,13 @@ const SectionRequests = ({ requests, pendingCount, onApprove, onReject }) => {
                     ))}
                   </div>
 
-                  {/* Message du motif */}
+                  {/* Motif */}
+                  <div style={{
+                    fontSize: 11, fontWeight: 600, textTransform: "uppercase",
+                    letterSpacing: "0.05em", color: T.green, marginBottom: 6,
+                  }}>
+                    Motif
+                  </div>
                   <div style={{ fontSize: 12, color: T.textSecondary, lineHeight: 1.65 }}>
                     {req.motif
                       ? req.motif
@@ -770,12 +904,36 @@ const SectionRequests = ({ requests, pendingCount, onApprove, onReject }) => {
                     }
                   </div>
 
+                  {/* Admin traitant si la demande est traitée */}
+                  {req.adminTraitantNom && (
+                    <div style={{
+                      marginTop: 8, paddingTop: 8,
+                      borderTop: `1px solid ${T.greenBorder}`,
+                      fontSize: 12, color: T.textSecondary,
+                      display: "flex", alignItems: "center", gap: 4,
+                    }}>
+                      <span style={{ color: T.green }}><User size={11} /></span>
+                      Traité par <strong style={{ marginLeft: 4 }}>{req.adminTraitantNom}</strong>
+                      {req.dateValidation && (
+                        <span style={{ marginLeft: 6 }}>· {formatDate(req.dateValidation)}</span>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               </div>
 
             </Card>
           );
         })}
+
+        {requests.length === 0 && (
+          <Card style={{ padding: "24px 18px", textAlign: "center" }}>
+            <span style={{ fontSize: 13, color: T.textSecondary, fontStyle: "italic" }}>
+              Aucune demande enregistrée.
+            </span>
+          </Card>
+        )}
       </div>
     </div>
   );
