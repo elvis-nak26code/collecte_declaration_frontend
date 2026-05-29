@@ -22,13 +22,16 @@ const fonctionController = async (adresseEmail, navigate) => {
     if (data.fonction === "Administrateur Système") {
       navigate("/tableau-de-bord");
     }
-    // else {
-    //   toast("Veuillez vous connecter");
-    //   navigate("/connextion");
-    // }
+    else {
+      toast("Veuillez vous connecter");
+      navigate("/connextion");
+    }
 
   } catch (err) {
-    console.error("Erreur :", err);
+      toast("Veuillez vous connecter");
+      navigate("/connextion");
+    // console.error("Erreur :", err);
+    // alert("Erreur lors de la vérification de la fonction : " + err.message);
     // alert("Erreur lors de la vérification de la fonction.");
     // alert(err.message);
     throw err;

@@ -1,5 +1,6 @@
 import { useState , useEffect} from "react";
 import { Users, Clock, ShieldCheck, Server, BellRing, Activity, LayoutDashboard, UserCheck, FileText, Settings, BarChart3, Menu, Bell, ChevronDown, Check, X, LogOut, TrendingUp, AlertTriangle, Circle, MapPin, Mail, Briefcase ,Phone , Building} from "lucide-react";
+import SectionRequests from "../../components/SectionRequests/index.jsx";
 
 // ═══════════════════════════════════════════════════════
 //  DONNÉES & CONFIG
@@ -30,14 +31,6 @@ const CONFIG = {
     { id: 7, user: "Système",           action: "Alerte: CPU > 85%",             ip: "10.0.0.2",     time: "10:01:33", level: "danger",  module: "Monitor" },
     { id: 8, user: "Aminata Traoré",    action: "Suppression fichier temp",      ip: "192.168.1.25", time: "10:12:00", level: "warning", module: "Files" },
   ],
-  users: [
-    { id: 1, name: "Fatou Diallo",    email: "f.diallo@sofitex.bf",    role: "Agent terrain", region: "Bobo",      status: "active",    lastLogin: "Aujourd'hui 08:12", initials: "FD" },
-    { id: 2, name: "Seydou Barro",    email: "s.barro@sofitex.bf",     role: "Technicien",    region: "Ouaga",     status: "active",    lastLogin: "Hier 14:30",        initials: "SB" },
-    { id: 3, name: "Aïcha Compaoré",  email: "a.compaore@sofitex.bf",  role: "Comptable",     region: "Banfora",   status: "inactive",  lastLogin: "05/14 09:00",       initials: "AC" },
-    { id: 4, name: "Moussa Sawadogo", email: "m.sawadogo@sofitex.bf",  role: "Ingénieur",     region: "Koudougou", status: "active",    lastLogin: "Aujourd'hui 10:01", initials: "MS" },
-    { id: 5, name: "Rokia Ouédraogo", email: "r.ouedraogo@sofitex.bf", role: "RH",            region: "Ouaga",     status: "suspended", lastLogin: "05/10 11:22",       initials: "RO" },
-    { id: 6, name: "Drissa Konaté",   email: "d.konate@sofitex.bf",    role: "Superviseur",   region: "Bobo",      status: "active",    lastLogin: "Aujourd'hui 07:45", initials: "DK" },
-  ],
   systemStatus: [
     { name: "Serveur Principal", status: "online",  load: 42, region: "Ouaga" },
     { name: "Serveur Backup",    status: "online",  load: 18, region: "Bobo" },
@@ -47,6 +40,42 @@ const CONFIG = {
     { name: "Monitoring",        status: "offline", load: 0,  region: "Banfora" },
   ],
 };
+
+// ═══════════════════════════════════════════════════════
+//  HELPER : mapper un utilisateur API → format UI
+// ═══════════════════════════════════════════════════════
+const TYPE_ROLE_LABEL = {
+  Usager:           "Usager",
+  DPO:              "DPO",
+  UtilisateurMetier:"Utilisateur Métier",
+  Administrateur:   "Administrateur",
+  CIL:              "CIL",
+};
+
+const mapUtilisateur = (u) => ({
+  id:        u.idUtilisateur ?? u.id,
+  name:      `${u.prenom ?? ''} ${u.nom ?? ''}`.trim() || u.email,
+  email:     u.email ?? '—',
+  role:      TYPE_ROLE_LABEL[u.typeUtilisateur] ?? u.typeUtilisateur ?? '—',
+  region:    u.ville ?? u.region ?? '—',
+  // Mapping depuis StatutUtilisateur (enum Java)
+  status:    u.statutUtilisateur === 'SUPPRIME'  ? 'suspended'
+           : u.statutUtilisateur === 'INACTIF'   ? 'inactive'
+           : u.statutUtilisateur === 'ACTIF'      ? 'active'
+           : 'active',
+  lastLogin: u.derniereConnexion
+    ? new Date(u.derniereConnexion).toLocaleString('fr-FR', {
+        day: '2-digit', month: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : u.dateCreation
+    ? new Date(u.dateCreation).toLocaleString('fr-FR', {
+        day: '2-digit', month: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : '—',
+  initials:  ((u.prenom?.charAt(0) ?? '') + (u.nom?.charAt(0) ?? '')).toUpperCase() || '?',
+});
 
 // ═══════════════════════════════════════════════════════
 //  THÈME
@@ -212,8 +241,6 @@ const Sidebar = ({ active, setActive, collapsed, admin, pendingCount }) => {
       transition: "width 0.22s cubic-bezier(.4,0,.2,1)",
       overflow: "hidden",
     }}>
-      {/* Logo zone */}
-
       {/* Profil admin */}
       {!collapsed && (
         <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.sidebarBorder}` }}>
@@ -284,7 +311,7 @@ const Sidebar = ({ active, setActive, collapsed, admin, pendingCount }) => {
       {/* Déconnexion */}
       {!collapsed && (
         <div style={{ padding: "10px 8px", borderTop: `1px solid ${T.sidebarBorder}` }}>
-          <button 
+          <button
           onClick={() => {
             setDeconnextion(true);
             localStorage.removeItem("token");
@@ -434,123 +461,51 @@ const Toast = ({ toast }) => {
 // ═══════════════════════════════════════════════════════
 //  SECTION : TABLEAU DE BORD
 // ═══════════════════════════════════════════════════════
-const SectionDashboard = ({ cfg, requests, setSection, onApprove, onReject }) => {
-        const statsCards = [
-          { label: "Utilisateurs totaux",  value: cfg.stats.totalUsers.toLocaleString("fr"),  sub: `${cfg.stats.activeUsers} actifs`,  color: T.green,  bgColor: T.greenBg,  borderColor: T.greenBorder,  Icon: Users },
-          { label: "Demandes en attente",  value: cfg.stats.pendingRequests,                   sub: "à traiter",                        color: T.purple, bgColor: T.purpleBg, borderColor: T.purpleBorder, Icon: Clock },
-          { label: "Entrées d'audit",      value: cfg.stats.auditLogs.toLocaleString("fr"),   sub: "événements journalisés",           color: T.blue,   bgColor: T.blueBg,   borderColor: T.blueBorder,   Icon: ShieldCheck },
-          // { label: "Serveurs en ligne",    value: cfg.stats.serversOnline,                     sub: "infrastructure active",            color: T.teal,   bgColor: T.tealBg,   borderColor: T.tealBorder,   Icon: Server },
-          { label: "Alertes actives",      value: cfg.stats.alertsCount,                       sub: "à résoudre",                      color: T.red,    bgColor: T.redBg,    borderColor: T.redBorder,    Icon: BellRing },
-          // { label: "Disponibilité",        value: "99.7%",                                     sub: "30 derniers jours",               color: T.green,  bgColor: T.greenBg,  borderColor: T.greenBorder,  Icon: Activity },
-        ];
-      
-        return (
-          <div className="slide-in">
-            <PageHeader
-              title="Tableau de bord"
-              subtitle={`Vue d'ensemble — ${new Date().toLocaleDateString("fr-FR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`}
-            />
-      
-            {/* Stats */}
-            <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0,1fr))",
-          gap: 14,
-          marginBottom: 20,
-        }}
-      >
+const SectionDashboard = ({ cfg, realRequests, pendingCount, setSection, onApprove, onReject, totalUsers, activeUsers, loadingUsers }) => {
+  // Skeleton inline pour la stat utilisateurs
+  const StatSkeleton = () => (
+    <div style={{ height: 26, width: 64, borderRadius: 6, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite" }} />
+  );
+
+  const statsCards = [
+    {
+      label: "Utilisateurs totaux",
+      value: loadingUsers ? null : totalUsers.toLocaleString("fr"),
+      sub: loadingUsers ? null : `${activeUsers} actifs`,
+      color: T.green,  bgColor: T.greenBg,  borderColor: T.greenBorder,  Icon: Users,
+    },
+    { label: "Demandes en attente",  value: pendingCount,                                sub: "à traiter",                        color: T.purple, bgColor: T.purpleBg, borderColor: T.purpleBorder, Icon: Clock },
+    { label: "Entrées d'audit",      value: cfg.stats.auditLogs.toLocaleString("fr"),   sub: "événements journalisés",           color: T.blue,   bgColor: T.blueBg,   borderColor: T.blueBorder,   Icon: ShieldCheck },
+    { label: "Alertes actives",      value: cfg.stats.alertsCount,                       sub: "à résoudre",                      color: T.red,    bgColor: T.redBg,    borderColor: T.redBorder,    Icon: BellRing },
+  ];
+
+  return (
+    <div className="slide-in">
+      <PageHeader
+        title="Tableau de bord"
+        subtitle={`Vue d'ensemble — ${new Date().toLocaleDateString("fr-FR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`}
+      />
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 14, marginBottom: 20 }}>
         {statsCards.map((s, i) => (
-          <Card
-            key={i}
-            className="card-hover"
-            style={{
-              padding: "18px 20px",
-              position: "relative",
-              overflow: "hidden",
-            }}
-          >
-            {/* Barre couleur top */}
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 3,
-                background: s.color,
-                borderRadius: "12px 12px 0 0",
-              }}
-            />
-      
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                justifyContent: "space-between",
-                marginBottom: 14,
-              }}
-            >
-              {/* Icône */}
-              <div
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 10,
-                  background: s.bgColor,
-                  border: `1px solid ${s.borderColor}`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: s.color,
-                }}
-              >
+          <Card key={i} className="card-hover" style={{ padding: "18px 20px", position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: s.color, borderRadius: "12px 12px 0 0" }} />
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 10, background: s.bgColor, border: `1px solid ${s.borderColor}`, display: "flex", alignItems: "center", justifyContent: "center", color: s.color }}>
                 <s.Icon size={18} strokeWidth={1.8} />
               </div>
-      
-              <TrendingUp
-                size={13}
-                color={s.color}
-                style={{ opacity: 0.4, marginTop: 4 }}
-              />
+              <TrendingUp size={13} color={s.color} style={{ opacity: 0.4, marginTop: 4 }} />
             </div>
-      
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: T.textMuted,
-                marginBottom: 4,
-              }}
-            >
-              {s.label}
-            </div>
-      
-            <div
-              style={{
-                fontSize: 26,
-                fontWeight: 800,
-                color: T.textPrimary,
-                fontFamily: "'DM Mono', monospace",
-                lineHeight: 1,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              {s.value}
-            </div>
-      
-            <div
-              style={{
-                fontSize: 11,
-                color: s.color,
-                marginTop: 5,
-                fontWeight: 500,
-              }}
-            >
-              {s.sub}
-            </div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textMuted, marginBottom: 4 }}>{s.label}</div>
+            {s.value === null
+              ? <div style={{ height: 26, width: 64, borderRadius: 6, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite" }} />
+              : <div style={{ fontSize: 26, fontWeight: 800, color: T.textPrimary, fontFamily: "'DM Mono', monospace", lineHeight: 1, letterSpacing: "-0.02em" }}>{s.value}</div>
+            }
+            {s.sub === null
+              ? <div style={{ height: 11, width: 80, borderRadius: 5, marginTop: 6, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite" }} />
+              : <div style={{ fontSize: 11, color: s.color, marginTop: 5, fontWeight: 500 }}>{s.sub}</div>
+            }
           </Card>
         ))}
       </div>
@@ -568,23 +523,13 @@ const SectionDashboard = ({ cfg, requests, setSection, onApprove, onReject }) =>
           </div>
           <div style={{ padding: "8px 0" }}>
             {cfg.auditLogs.slice(0, 5).map((log, i) => (
-              <div key={i} style={{
-                display: "flex", alignItems: "flex-start", gap: 12, padding: "9px 18px",
-                borderBottom: i < 4 ? `1px solid ${T.grayBg}` : "none",
-              }}>
-                <div style={{
-                  width: 6, height: 6, borderRadius: "50%", flexShrink: 0, marginTop: 5,
-                  background: log.level === "danger" ? T.red : log.level === "warning" ? T.yellow : T.green,
-                }} />
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "9px 18px", borderBottom: i < 4 ? `1px solid ${T.grayBg}` : "none" }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, marginTop: 5, background: log.level === "danger" ? T.red : log.level === "warning" ? T.yellow : T.green }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, color: T.textPrimary, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{log.action}</div>
                   <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>{log.user} · {log.time}</div>
                 </div>
-                <span style={{
-                  fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5,
-                  background: log.level === "danger" ? T.redBg : log.level === "warning" ? T.yellowBg : T.grayBg,
-                  color: log.level === "danger" ? T.red : log.level === "warning" ? T.yellow : T.textMuted,
-                }}>{log.module}</span>
+                <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: log.level === "danger" ? T.redBg : log.level === "warning" ? T.yellowBg : T.grayBg, color: log.level === "danger" ? T.red : log.level === "warning" ? T.yellow : T.textMuted }}>{log.module}</span>
               </div>
             ))}
           </div>
@@ -600,30 +545,29 @@ const SectionDashboard = ({ cfg, requests, setSection, onApprove, onReject }) =>
             <button onClick={() => setSection("requests")} style={{ fontSize: 12, color: T.gold, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Voir tout →</button>
           </div>
           <div style={{ padding: "8px 0" }}>
-            {requests.filter(r => r.status === "pending").slice(0, 4).map((req, i) => (
-              <div key={req.id} style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "9px 18px",
-                borderBottom: i < 3 ? `1px solid ${T.grayBg}` : "none",
-              }}>
-                <Avatar initials={req.avatar} size={32} bg={T.purpleBg} color={T.purple} border={T.purpleBorder} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary }}>{req.user}</div>
-                  <div style={{ fontSize: 11, color: T.textMuted }}>{req.role} · {req.region}</div>
+            {realRequests.filter(r => r.statutDemandeAcces === "EN_ATTENTE").slice(0, 4).map((req, i) => {
+              const initiales = ((req.prenom?.charAt(0) ?? '') + (req.nom?.charAt(0) ?? '')).toUpperCase() || '?';
+              const nomComplet = `${req.prenom ?? ''} ${req.nom ?? ''}`.trim() || req.email;
+              const roleLabel = TYPE_ROLE_LABEL[req.typeUtilisateur] ?? req.typeUtilisateur ?? '—';
+              return (
+                <div key={req.idDemande} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 18px", borderBottom: i < 3 ? `1px solid ${T.grayBg}` : "none" }}>
+                  <Avatar initials={initiales} size={32} bg={T.purpleBg} color={T.purple} border={T.purpleBorder} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nomComplet}</div>
+                    <div style={{ fontSize: 11, color: T.textMuted }}>{roleLabel}{req.ville ? ` · ${req.ville}` : ''}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 5 }}>
+                    <button onClick={() => onApprove(req.idDemande)} style={{ width: 28, height: 28, background: T.greenBg, border: `1px solid ${T.greenBorder}`, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.green }}><Check size={13} /></button>
+                    <button onClick={() => onReject(req.idDemande)} style={{ width: 28, height: 28, background: T.redBg, border: `1px solid ${T.redBorder}`, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.red }}><X size={13} /></button>
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 5 }}>
-                  <button onClick={() => onApprove(req.id)} style={{
-                    width: 28, height: 28, background: T.greenBg, border: `1px solid ${T.greenBorder}`,
-                    borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: "pointer", color: T.green,
-                  }}><Check size={13} /></button>
-                  <button onClick={() => onReject(req.id)} style={{
-                    width: 28, height: 28, background: T.redBg, border: `1px solid ${T.redBorder}`,
-                    borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: "pointer", color: T.red,
-                  }}><X size={13} /></button>
-                </div>
+              );
+            })}
+            {realRequests.filter(r => r.statutDemandeAcces === "EN_ATTENTE").length === 0 && (
+              <div style={{ padding: "16px 18px", fontSize: 12, color: T.textMuted, fontStyle: "italic", textAlign: "center" }}>
+                Aucune demande en attente
               </div>
-            ))}
+            )}
           </div>
         </Card>
       </div>
@@ -632,323 +576,76 @@ const SectionDashboard = ({ cfg, requests, setSection, onApprove, onReject }) =>
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : DEMANDES DE CONNEXION
+//  SECTION : UTILISATEURS  (données réelles API)
 // ═══════════════════════════════════════════════════════
-const SectionRequests = ({ pendingCount, onApprove, onReject }) => {
-  const [openIds, setOpenIds] = useState({});
-  const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // ── Fetch au montage ──────────────────────────────────────────────
-  useEffect(() => {
-    const fetchDemandes = async () => {
-      try {
-        setLoading(true);
-        const token = localStorage.getItem("token"); // adapte si tu stockes ailleurs
-        const res = await fetch("http://localhost:8080/api/admin/demandes", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error(`Erreur ${res.status}`);
-        const data = await res.json();
-        setRequests(data);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchDemandes();
-    const interval = setInterval(fetchDemandes, 30000); // re-fetch toutes les 15s
-
-    return () => clearInterval(interval); // nettoyage au démontage
-  }, []);
-
-  const toggle = (id) =>
-    setOpenIds(prev => ({ ...prev, [id]: !prev[id] }));
-
-  // ── Helpers de mapping API → affichage ───────────────────────────
-  const getStatus = (statutDemandeAcces) => {
-    if (statutDemandeAcces === "EN_ATTENTE") return "pending";
-    if (statutDemandeAcces === "APPROUVEE")  return "approved";
-    return "rejected";
-  };
-
-  const getInitiales = (prenom, nom) => {
-    const p = prenom?.charAt(0) ?? "";
-    const n = nom?.charAt(0) ?? "";
-    return (p + n).toUpperCase() || "?";
-  };
-
-  const formatDate = (isoString) => {
-    if (!isoString) return "—";
-    return new Date(isoString).toLocaleDateString("fr-FR", {
-      day: "2-digit", month: "short", year: "numeric",
-    });
-  };
-
-  const getRoleLabel = (typeUtilisateur) => {
-    const map = {
-      Usager: "Usager",
-      DPO: "DPO",
-      UtilisateurMetier: "Utilisateur Métier",
-      Administrateur: "Administrateur",
-      CIL: "CIL",
-    };
-    return map[typeUtilisateur] ?? typeUtilisateur ?? "—";
-  };
-
-  // ── États de chargement / erreur ─────────────────────────────────
-  if (loading) return (
-    <div className="slide-in">
-      <PageHeader
-        title="Demandes de connexion"
-        subtitle="Chargement en cours..."
-      />
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {[1, 2, 3].map(i => (
-          <Card key={i} style={{ padding: "14px 18px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              {/* Avatar skeleton */}
-              <div style={{
-                width: 44, height: 44, borderRadius: "50%",
-                background: T.border,
-                animation: "pulse 1.4s ease-in-out infinite",
-              }} />
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{
-                  width: "40%", height: 14, borderRadius: 6,
-                  background: T.border,
-                  animation: "pulse 1.4s ease-in-out infinite",
-                }} />
-                <div style={{
-                  width: "25%", height: 11, borderRadius: 6,
-                  background: T.border,
-                  animation: "pulse 1.4s ease-in-out infinite",
-                }} />
-              </div>
-            </div>
-            <style>{`
-              @keyframes pulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.4; }
-              }
-            `}</style>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-
-  if (error) return (
-    <div className="slide-in">
-      <PageHeader title="Demandes de connexion" subtitle="Erreur de chargement" />
-      <Card style={{ padding: "16px 18px", borderLeft: `3px solid ${T.red}` }}>
-        <span style={{ color: T.red, fontSize: 13 }}>
-          Impossible de charger les demandes : {error}
-        </span>
-      </Card>
-    </div>
-  );
-
-  const pendingReal = requests.filter(r => r.statutDemandeAcces === "EN_ATTENTE").length;
-
-  // ── Rendu principal ───────────────────────────────────────────────
-  return (
-    <div className="slide-in">
-      <PageHeader
-        title="Demandes de connexion"
-        subtitle={`${pendingReal} demande${pendingReal > 1 ? "s" : ""} en attente de validation`}
-      />
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {requests.map(req => {
-          const status    = getStatus(req.statutDemandeAcces);
-          const isPending  = status === "pending";
-          const isApproved = status === "approved";
-          const isOpen     = !!openIds[req.idDemande];
-          const initiales  = getInitiales(req.prenom, req.nom);
-          const nomComplet = `${req.prenom ?? ""} ${req.nom ?? ""}`.trim() || req.email;
-
-          // Ligne de détails selon le type d'utilisateur
-          const details = [
-            { icon: <Mail size={11} />,      value: req.email },
-            { icon: <Briefcase size={11} />, value: getRoleLabel(req.typeUtilisateur) },
-            req.ville    && { icon: <MapPin size={11} />,  value: req.ville },
-            req.telephone && { icon: <Phone size={11} />,  value: req.telephone },
-            req.organisme && { icon: <Building size={11} />, value: req.organisme },
-            req.fonction  && { icon: <Briefcase size={11} />, value: req.fonction },
-            { icon: <Clock size={11} />, value: formatDate(req.dateDemande) },
-          ].filter(Boolean);
-
-          return (
-            <Card key={req.idDemande} className={isPending ? "card-hover" : ""} style={{
-              padding: "14px 18px", opacity: isPending ? 1 : 0.65,
-              borderLeft: `3px solid ${isPending ? T.green : isApproved ? T.green : T.red}`,
-            }}>
-
-              {/* Ligne principale */}
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <Avatar
-                  initials={initiales} size={44}
-                  bg={isPending ? T.greenBg : isApproved ? T.greenBg : T.redBg}
-                  color={isPending ? T.green : isApproved ? T.green : T.red}
-                  border={isPending ? T.greenBorder : isApproved ? T.greenBorder : T.redBorder}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary }}>
-                      {nomComplet}
-                    </span>
-                    <Badge type={isPending ? "pending" : isApproved ? "active" : "inactive"} />
-                  </div>
-                  <span style={{ fontSize: 12, color: T.textSecondary }}>
-                    {getRoleLabel(req.typeUtilisateur)}
-                  </span>
-                </div>
-
-                {isPending ? (
-                  <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                    <button onClick={() => onApprove(req.idDemande)} style={{
-                      background: T.greenBg, border: `1px solid ${T.greenBorder}`,
-                      borderRadius: 8, padding: "8px 16px", color: T.green,
-                      fontSize: 13, fontWeight: 600, cursor: "pointer",
-                      display: "flex", alignItems: "center", gap: 5,
-                    }}><Check size={13} /> Approuver</button>
-                    <button onClick={() => onReject(req.idDemande)} style={{
-                      background: T.redBg, border: `1px solid ${T.redBorder}`,
-                      borderRadius: 8, padding: "8px 16px", color: T.red,
-                      fontSize: 13, fontWeight: 600, cursor: "pointer",
-                      display: "flex", alignItems: "center", gap: 5,
-                    }}><X size={13} /> Refuser</button>
-                  </div>
-                ) : (
-                  <div style={{
-                    fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 8,
-                    color: isApproved ? T.green : T.red,
-                    background: isApproved ? T.greenBg : T.redBg,
-                    border: `1px solid ${isApproved ? T.greenBorder : T.redBorder}`,
-                    display: "flex", alignItems: "center", gap: 5,
-                  }}>
-                    {isApproved ? <Check size={13} /> : <X size={13} />}
-                    {isApproved ? "Approuvé" : "Refusé"}
-                  </div>
-                )}
-              </div>
-
-              {/* Séparateur + Toggle accordéon */}
-              <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 10, paddingTop: 8 }}>
-                <button onClick={() => toggle(req.idDemande)} style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  display: "flex", alignItems: "center", gap: 6,
-                  color: T.textSecondary, fontSize: 12, padding: 0,
-                }}>
-                  <FileText size={13} />
-                  <span>Détails de la demande</span>
-                  <ChevronDown size={13} style={{
-                    transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 0.25s ease",
-                  }} />
-                </button>
-              </div>
-
-              {/* Panneau accordéon */}
-              <div style={{
-                maxHeight: isOpen ? 300 : 0,
-                overflow: "hidden",
-                opacity: isOpen ? 1 : 0,
-                transition: "max-height 0.3s ease, opacity 0.3s ease",
-              }}>
-                <div style={{
-                  marginTop: 10, padding: "10px 14px",
-                  background: T.greenBg, borderRadius: 8,
-                  borderLeft: `3px solid ${T.greenBorder}`,
-                  lineHeight: 1.6,
-                }}>
-
-                  <div style={{
-                    fontSize: 11, fontWeight: 600, textTransform: "uppercase",
-                    letterSpacing: "0.05em", color: T.green, marginBottom: 6,
-                  }}>
-                    Informations
-                  </div>
-
-                  {/* Détails */}
-                  <div style={{
-                    display: "flex", flexWrap: "wrap", gap: "4px 16px",
-                    marginBottom: 8, paddingBottom: 8,
-                    borderBottom: `1px solid ${T.greenBorder}`,
-                  }}>
-                    {details.map(({ icon, value }, i) => (
-                      <span key={i} style={{
-                        display: "flex", alignItems: "center", gap: 4,
-                        fontSize: 12, color: T.textSecondary,
-                      }}>
-                        <span style={{ color: T.green }}>{icon}</span>
-                        {value}
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* Motif */}
-                  <div style={{
-                    fontSize: 11, fontWeight: 600, textTransform: "uppercase",
-                    letterSpacing: "0.05em", color: T.green, marginBottom: 6,
-                  }}>
-                    Motif
-                  </div>
-                  <div style={{ fontSize: 12, color: T.textSecondary, lineHeight: 1.65 }}>
-                    {req.motif
-                      ? req.motif
-                      : <span style={{ color: T.textTertiary, fontStyle: "italic" }}>Aucun motif renseigné</span>
-                    }
-                  </div>
-
-                  {/* Admin traitant si la demande est traitée */}
-                  {req.adminTraitantNom && (
-                    <div style={{
-                      marginTop: 8, paddingTop: 8,
-                      borderTop: `1px solid ${T.greenBorder}`,
-                      fontSize: 12, color: T.textSecondary,
-                      display: "flex", alignItems: "center", gap: 4,
-                    }}>
-                      <span style={{ color: T.green }}><User size={11} /></span>
-                      Traité par <strong style={{ marginLeft: 4 }}>{req.adminTraitantNom}</strong>
-                      {req.dateValidation && (
-                        <span style={{ marginLeft: 6 }}>· {formatDate(req.dateValidation)}</span>
-                      )}
-                    </div>
-                  )}
-
-                </div>
-              </div>
-
-            </Card>
-          );
-        })}
-
-        {requests.length === 0 && (
-          <Card style={{ padding: "24px 18px", textAlign: "center" }}>
-            <span style={{ fontSize: 13, color: T.textSecondary, fontStyle: "italic" }}>
-              Aucune demande enregistrée.
-            </span>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ═══════════════════════════════════════════════════════
-//  SECTION : UTILISATEURS
-// ═══════════════════════════════════════════════════════
-const SectionUsers = ({ users, setUsers }) => {
+const SectionUsers = ({ users, setUsers, loadingUsers, showToast }) => {
   const [filter, setFilter] = useState("all");
   const filtered = filter === "all" ? users : users.filter(u => u.status === filter);
 
+  const handleToggleStatus = async (u) => {
+    const token = localStorage.getItem('token');
+    const newStatus = u.status === 'active' ? 'suspended' : 'active';
+    // Optimistic update
+    setUsers(us => us.map(x => x.id === u.id ? { ...x, status: newStatus } : x));
+    try {
+      const res = await fetch(`http://localhost:8080/api/admin/utilisateurs/${u.id}/statut`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ statut: newStatus === 'suspended' ? 'SUPPRIME' : 'ACTIF' }),
+      });
+      if (!res.ok) throw new Error();
+      showToast(newStatus === 'suspended' ? 'Utilisateur suspendu' : 'Utilisateur réactivé', newStatus === 'suspended' ? 'error' : 'success');
+    } catch {
+      // Rollback si erreur
+      setUsers(us => us.map(x => x.id === u.id ? { ...x, status: u.status } : x));
+      showToast('Erreur lors de la mise à jour', 'error');
+    }
+  };
+
+  if (loadingUsers) {
+    return (
+      <div className="slide-in">
+        <PageHeader title="Utilisateurs" subtitle="Chargement des données…" />
+        <Card style={{ overflow: "hidden" }}>
+          {/* En-tête skeleton */}
+          <div style={{ background: T.grayBg, borderBottom: `1px solid ${T.cardBorder}`, padding: "11px 16px", display: "flex", gap: 16 }}>
+            {["40%", "12%", "12%", "12%", "14%", "10%"].map((w, i) => (
+              <div key={i} style={{ height: 11, width: w, borderRadius: 5, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.07}s` }} />
+            ))}
+          </div>
+          {/* Lignes skeleton */}
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 16px", borderBottom: i < 5 ? `1px solid ${T.cardBorder}` : "none" }}>
+              {/* Avatar */}
+              <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1}s` }} />
+              {/* Nom + email */}
+              <div style={{ flex: "0 0 28%", display: "flex", flexDirection: "column", gap: 7 }}>
+                <div style={{ height: 13, width: "70%", borderRadius: 5, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.05}s` }} />
+                <div style={{ height: 10, width: "55%", borderRadius: 5, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.1}s` }} />
+              </div>
+              {/* Rôle */}
+              <div style={{ flex: "0 0 12%", height: 12, borderRadius: 5, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.15}s` }} />
+              {/* Région */}
+              <div style={{ flex: "0 0 12%", height: 12, borderRadius: 5, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.2}s` }} />
+              {/* Badge statut */}
+              <div style={{ flex: "0 0 10%", height: 22, borderRadius: 20, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.25}s` }} />
+              {/* Dernière connexion */}
+              <div style={{ flex: "0 0 13%", height: 12, borderRadius: 5, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.3}s` }} />
+              {/* Boutons actions */}
+              <div style={{ flex: 1, display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                <div style={{ width: 62, height: 28, borderRadius: 8, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.35}s` }} />
+                <div style={{ width: 74, height: 28, borderRadius: 8, background: T.cardBorder, animation: "pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.4}s` }} />
+              </div>
+            </div>
+          ))}
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="slide-in">
-      <PageHeader title="Utilisateurs" subtitle={`${users.length} utilisateurs dans le système`}>
+      <PageHeader title="Utilisateurs" subtitle={`${users.length} utilisateur${users.length !== 1 ? 's' : ''} dans le système`}>
         <Select value={filter} onChange={e => setFilter(e.target.value)}>
           <option value="all">Tous les statuts</option>
           <option value="active">Actifs</option>
@@ -958,49 +655,54 @@ const SectionUsers = ({ users, setUsers }) => {
         <BtnPrimary>+ Ajouter</BtnPrimary>
       </PageHeader>
 
-      <Card style={{ overflow: "hidden" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%" }}>
-          <thead>
-            <tr style={{ background: T.grayBg, borderBottom: `1px solid ${T.cardBorder}` }}>
-              {["Utilisateur", "Rôle", "Région", "Statut", "Dernière connexion", "Actions"].map(h => (
-                <th key={h} style={{ padding: "11px 16px", fontSize: 11, fontWeight: 700, color: T.textMuted, textAlign: "left", letterSpacing: "0.07em", textTransform: "uppercase" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((u, i) => (
-              <tr key={u.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${T.cardBorder}` : "none" }}
-                className="table-row-hover">
-                <td style={{ padding: "12px 16px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Avatar initials={u.initials} size={34} />
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary }}>{u.name}</div>
-                      <div style={{ fontSize: 11, color: T.textMuted }}>{u.email}</div>
-                    </div>
-                  </div>
-                </td>
-                <td style={{ padding: "12px 16px", fontSize: 13, color: T.textSecondary }}>{u.role}</td>
-                <td style={{ padding: "12px 16px", fontSize: 13, color: T.textSecondary }}>{u.region}</td>
-                <td style={{ padding: "12px 16px" }}><Badge type={u.status} /></td>
-                <td style={{ padding: "12px 16px", fontSize: 12, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>{u.lastLogin}</td>
-                <td style={{ padding: "12px 16px" }}>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <BtnOutline style={{ padding: "4px 12px", fontSize: 12 }}>Modifier</BtnOutline>
-                    <BtnOutline
-                      color={u.status === "suspended" ? T.green : T.red}
-                      style={{ padding: "4px 12px", fontSize: 12, borderColor: u.status === "suspended" ? T.greenBorder : T.redBorder }}
-                      onClick={() => setUsers(us => us.map(x => x.id === u.id ? { ...x, status: x.status === "active" ? "suspended" : "active" } : x))}
-                    >
-                      {u.status === "suspended" ? "Réactiver" : "Suspendre"}
-                    </BtnOutline>
-                  </div>
-                </td>
+      {filtered.length === 0 ? (
+        <Card style={{ padding: 40, textAlign: "center" }}>
+          <div style={{ fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun utilisateur trouvé pour ce filtre.</div>
+        </Card>
+      ) : (
+        <Card style={{ overflow: "hidden" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr style={{ background: T.grayBg, borderBottom: `1px solid ${T.cardBorder}` }}>
+                {["Utilisateur", "Rôle", "Région", "Statut", "Dernière connexion", "Actions"].map(h => (
+                  <th key={h} style={{ padding: "11px 16px", fontSize: 11, fontWeight: 700, color: T.textMuted, textAlign: "left", letterSpacing: "0.07em", textTransform: "uppercase" }}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
+            </thead>
+            <tbody>
+              {filtered.map((u, i) => (
+                <tr key={u.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${T.cardBorder}` : "none" }} className="table-row-hover">
+                  <td style={{ padding: "12px 16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <Avatar initials={u.initials} size={34} />
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary }}>{u.name}</div>
+                        <div style={{ fontSize: 11, color: T.textMuted }}>{u.email}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ padding: "12px 16px", fontSize: 13, color: T.textSecondary }}>{u.role}</td>
+                  <td style={{ padding: "12px 16px", fontSize: 13, color: T.textSecondary }}>{u.region}</td>
+                  <td style={{ padding: "12px 16px" }}><Badge type={u.status} /></td>
+                  <td style={{ padding: "12px 16px", fontSize: 12, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>{u.lastLogin}</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <BtnOutline style={{ padding: "4px 12px", fontSize: 12 }}>Modifier</BtnOutline>
+                      <BtnOutline
+                        color={u.status === "suspended" ? T.green : T.red}
+                        style={{ padding: "4px 12px", fontSize: 12, borderColor: u.status === "suspended" ? T.greenBorder : T.redBorder }}
+                        onClick={() => handleToggleStatus(u)}
+                      >
+                        {u.status === "suspended" ? "Réactiver" : "Suspendre"}
+                      </BtnOutline>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
     </div>
   );
 };
@@ -1040,10 +742,7 @@ const SectionAudit = ({ logs }) => {
                 <td style={{ padding: "11px 16px", fontSize: 12, color: T.textSecondary, fontWeight: 500 }}>{log.user}</td>
                 <td style={{ padding: "11px 16px", fontSize: 13, color: T.textPrimary, fontWeight: 500 }}>{log.action}</td>
                 <td style={{ padding: "11px 16px" }}>
-                  <span style={{
-                    background: T.goldLight, border: `1px solid ${T.goldBorder}55`,
-                    borderRadius: 6, padding: "2px 8px", fontSize: 11, color: T.gold, fontWeight: 600,
-                  }}>{log.module}</span>
+                  <span style={{ background: T.goldLight, border: `1px solid ${T.goldBorder}55`, borderRadius: 6, padding: "2px 8px", fontSize: 11, color: T.gold, fontWeight: 600 }}>{log.module}</span>
                 </td>
                 <td style={{ padding: "11px 16px", fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.textMuted }}>{log.ip}</td>
                 <td style={{ padding: "11px 16px" }}><Badge type={log.level} /></td>
@@ -1085,12 +784,7 @@ const SectionSystem = ({ systemStatus }) => (
               <span style={{ fontFamily: "'DM Mono', monospace", color: loadColor, fontWeight: 700 }}>{srv.load}%</span>
             </div>
             <div style={{ height: 5, background: T.grayBg, borderRadius: 6, overflow: "hidden" }}>
-              <div style={{
-                height: "100%", borderRadius: 6,
-                width: `${srv.load}%`,
-                background: loadColor,
-                transition: "width 0.7s ease",
-              }} />
+              <div style={{ height: "100%", borderRadius: 6, width: `${srv.load}%`, background: loadColor, transition: "width 0.7s ease" }} />
             </div>
           </Card>
         );
@@ -1115,11 +809,7 @@ const SectionReports = () => {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
         {reports.map((r, i) => (
           <Card key={i} className="card-hover" style={{ padding: 22 }}>
-            <div style={{
-              width: 46, height: 46, borderRadius: 12, background: r.bg,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: r.color, marginBottom: 14,
-            }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: r.bg, display: "flex", alignItems: "center", justifyContent: "center", color: r.color, marginBottom: 14 }}>
               <r.Icon size={20} strokeWidth={1.6} />
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary, marginBottom: 5 }}>{r.title}</div>
@@ -1153,11 +843,7 @@ const SectionSettings = () => {
             <h3 style={{ fontSize: 12, fontWeight: 700, color: T.gold, letterSpacing: "0.08em", textTransform: "uppercase" }}>{sec.title}</h3>
           </div>
           {sec.items.map((item, ii) => (
-            <div key={ii} style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "13px 20px",
-              borderBottom: ii < sec.items.length - 1 ? `1px solid ${T.cardBorder}` : "none",
-            }}>
+            <div key={ii} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 20px", borderBottom: ii < sec.items.length - 1 ? `1px solid ${T.cardBorder}` : "none" }}>
               <span style={{ fontSize: 13, color: T.textPrimary, fontWeight: 500 }}>{item}</span>
               <ToggleSwitch defaultOn={ii % 2 === 0} />
             </div>
@@ -1171,19 +857,8 @@ const SectionSettings = () => {
 const ToggleSwitch = ({ defaultOn }) => {
   const [on, setOn] = useState(defaultOn);
   return (
-    <div onClick={() => setOn(v => !v)} style={{
-      width: 40, height: 22, borderRadius: 22,
-      background: on ? T.green : T.grayBorder,
-      position: "relative", cursor: "pointer",
-      transition: "background 0.2s ease", flexShrink: 0,
-    }}>
-      <div style={{
-        position: "absolute", top: 3, left: on ? 19 : 3,
-        width: 16, height: 16, borderRadius: "50%",
-        background: "#fff",
-        transition: "left 0.2s ease",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-      }} />
+    <div onClick={() => setOn(v => !v)} style={{ width: 40, height: 22, borderRadius: 22, background: on ? T.green : T.grayBorder, position: "relative", cursor: "pointer", transition: "background 0.2s ease", flexShrink: 0 }}>
+      <div style={{ position: "absolute", top: 3, left: on ? 19 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
     </div>
   );
 };
@@ -1196,19 +871,106 @@ export default function TableauDeBoard() {
   const [collapsed, setCollapsed] = useState(false);
   const [currentAccount, setCurrentAccount] = useState(CONFIG.accounts[0]);
   const [requests, setRequests] = useState(CONFIG.connectionRequests);
-  const [users, setUsers] = useState(CONFIG.users);
-  const [toast, setToast] = useState(null);
-
-  const pendingCount = requests.filter(r => r.status === "pending").length;
+  const [toastState, setToastState] = useState(null);
 
   const showToast = (msg, type = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3200);
+    setToastState({ msg, type });
+    setTimeout(() => setToastState(null), 3200);
   };
 
+  // ── Demandes (API) ────────────────────────────────────
+  const [realRequests,     setRealRequests]     = useState([]);
+  const [realPendingCount, setRealPendingCount] = useState(0);
+
+  // ── Utilisateurs (API) ───────────────────────────────
+  const [users,        setUsers]        = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+
+  // Fetch demandes
+  useEffect(() => {
+    const fetchDemandes = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('http://localhost:8080/api/admin/demandes', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setRealRequests(data);
+        setRealPendingCount(data.filter(r => r.statutDemandeAcces === 'EN_ATTENTE').length);
+      } catch (err) {
+        console.error('Fetch demandes erreur:', err.message);
+      }
+    };
+    fetchDemandes();
+    const interval = setInterval(fetchDemandes, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch utilisateurs
+  useEffect(() => {
+    const fetchUtilisateurs = async () => {
+      setLoadingUsers(true);
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('http://localhost:8080/api/admin/utilisateurs', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setUsers(data.map(mapUtilisateur));
+      } catch (err) {
+        console.error('Fetch utilisateurs erreur:', err.message);
+        showToast('Impossible de charger les utilisateurs', 'error');
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+    fetchUtilisateurs();
+  }, []);
+
+  // Approve / reject pour le dashboard
+  const handleApproveReal = async (id) => {
+    const token = localStorage.getItem('token');
+    setRealRequests(r => r.map(x => x.idDemande === id ? { ...x, statutDemandeAcces: 'APPROUVEE' } : x));
+    setRealPendingCount(c => Math.max(0, c - 1));
+    showToast("Demande approuvée");
+    try {
+      const res = await fetch(`http://localhost:8080/api/admin/demandes/${id}/valider`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ decision: 'APPROUVEE' }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setRealRequests(r => r.map(x => x.idDemande === id ? { ...x, statutDemandeAcces: 'EN_ATTENTE' } : x));
+      setRealPendingCount(c => c + 1);
+      showToast("Erreur lors de l'approbation", 'error');
+    }
+  };
+
+  const handleRejectReal = async (id) => {
+    const token = localStorage.getItem('token');
+    setRealRequests(r => r.map(x => x.idDemande === id ? { ...x, statutDemandeAcces: 'REJETEE' } : x));
+    setRealPendingCount(c => Math.max(0, c - 1));
+    showToast("Demande refusée", "error");
+    try {
+      const res = await fetch(`http://localhost:8080/api/admin/demandes/${id}/rejeter`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ motif: 'Refusé depuis le tableau de bord' }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setRealRequests(r => r.map(x => x.idDemande === id ? { ...x, statutDemandeAcces: 'EN_ATTENTE' } : x));
+      setRealPendingCount(c => c + 1);
+    }
+  };
+
+  // Approve / reject pour SectionRequests (mock)
   const handleApprove = (id) => {
     setRequests(r => r.map(x => x.id === id ? { ...x, status: "approved" } : x));
-    showToast("Demande approuvée avec succès", "success");
+    showToast("Demande approuvée");
   };
   const handleReject = (id) => {
     setRequests(r => r.map(x => x.id === id ? { ...x, status: "rejected" } : x));
@@ -1246,6 +1008,7 @@ export default function TableauDeBoard() {
         .table-row-hover:hover td { background: ${T.grayBg}; }
 
         @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
 
       <TopBar
@@ -1263,25 +1026,46 @@ export default function TableauDeBoard() {
           setActive={setSection}
           collapsed={collapsed}
           admin={CONFIG.admin}
-          pendingCount={pendingCount}
+          pendingCount={realPendingCount}
         />
 
         <main style={{ flex: 1, overflow: "auto", padding: "24px 28px", background: T.mainBg }}>
           {section === "dashboard" && (
-            <SectionDashboard cfg={CONFIG} requests={requests} setSection={setSection} onApprove={handleApprove} onReject={handleReject} />
+            <SectionDashboard
+              cfg={CONFIG}
+              realRequests={realRequests}
+              pendingCount={realPendingCount}
+              setSection={setSection}
+              onApprove={handleApproveReal}
+              onReject={handleRejectReal}
+              totalUsers={users.length}
+              activeUsers={users.filter(u => u.status === 'active').length}
+              loadingUsers={loadingUsers}
+            />
           )}
           {section === "requests" && (
-            <SectionRequests requests={requests} pendingCount={pendingCount} onApprove={handleApprove} onReject={handleReject} />
+            <SectionRequests
+              onApprove={handleApprove}
+              onReject={handleReject}
+              onPendingCountChange={setRealPendingCount}
+            />
           )}
-          {section === "users" && <SectionUsers users={users} setUsers={setUsers} />}
-          {section === "audit" && <SectionAudit logs={CONFIG.auditLogs} />}
-          {section === "system" && <SectionSystem systemStatus={CONFIG.systemStatus} />}
-          {section === "reports" && <SectionReports />}
+          {section === "users" && (
+            <SectionUsers
+              users={users}
+              setUsers={setUsers}
+              loadingUsers={loadingUsers}
+              showToast={showToast}
+            />
+          )}
+          {section === "audit"    && <SectionAudit logs={CONFIG.auditLogs} />}
+          {section === "system"   && <SectionSystem systemStatus={CONFIG.systemStatus} />}
+          {section === "reports"  && <SectionReports />}
           {section === "settings" && <SectionSettings />}
         </main>
       </div>
 
-      <Toast toast={toast} />
+      <Toast toast={toastState} />
     </div>
   );
 }

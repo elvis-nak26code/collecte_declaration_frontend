@@ -2,6 +2,7 @@ import TableauDeBord from './pages/TableauDeBaordAdmin/index'
 import Connextion from './pages/Connextion'
 import TableauDeBoard from './pages/TableauDeBaordAdmin/index'
 import Inscription from './pages/Inscription'
+import Chargement from './components/Chargement'
 import { BrowserRouter , Route , Routes} from 'react-router-dom'
 
 import { Toaster } from 'react-hot-toast';
@@ -12,7 +13,8 @@ function App() {
     <BrowserRouter>
     <Toaster position="top-center" />
       <Routes>
-        <Route path="/" element={<Connextion />} />
+        <Route path="/" element={<Chargement />} />
+        <Route path="/connextion" element={<Connextion />} />
         <Route path="/inscription" element={<Inscription />} />
         <Route path="/tableau-de-bord" element={<TableauDeBord />} />
       </Routes>
