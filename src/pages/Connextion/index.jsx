@@ -100,7 +100,7 @@ import Logo from '../../assets/logosofitex.jpeg'
 import Chargement from '../../components/Chargement'
 import { Link } from "react-router-dom";
 
-import bg2 from "../../assets/bg2.jpg";
+import bg2 from "../../assets/bg2.png";
 import bg1 from "../../assets/bg1.jpg";
 import bg3 from "../../assets/bg3.jpg";
 
@@ -154,6 +154,7 @@ const handleSubmit = async (e) => {
 
     // Sauvegarde du token JWT
     localStorage.setItem("token", data.token);
+    localStorage.setItem("email", email);
     
     // Redirection après connexion
     // window.location.href = "/dashboard";
@@ -375,7 +376,7 @@ const handleSubmit = async (e) => {
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
       
-    {chargement && <Chargement texte={"BIEN VENUE : CHARGEMENT DU TABLEAU DE BORD . . ."}/>}
+    {chargement && <Chargement texte={"BIEN VENUE : CHARGEMENT DU TABLEAU DE BORD . . ."} email={email} />}
     {/* <Chargement texte={"BIEN VENUE : CHARGEMENT DU TABLEAU DE BORD . . ."}/> */}
     </div>
   );

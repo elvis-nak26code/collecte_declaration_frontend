@@ -2,8 +2,9 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from 'react-hot-toast';
+import Compteinactif from "../Compteinactif";
 
-const fonctionController = async (adresseEmail, navigate) => {
+const fonctionController = async (adresseEmail, navigate ) => {
   const token = localStorage.getItem("token");
   // alert("Token récupéré : " + token);
   try {
@@ -19,13 +20,40 @@ const fonctionController = async (adresseEmail, navigate) => {
 
     const data = await response.json();
     // alert(JSON.stringify(data));
-    if (data.fonction === "Administrateur Système") {
-      navigate("/tableau-de-bord");
-    }
-    else {
-      toast("Veuillez vous connecter");
-      navigate("/connextion");
-    }
+    // alert("Fonction récupérée : " + JSON.stringify(data));
+    
+    const ROUTES_PAR_TYPE = {
+      "DG": "/tableau-de-bord/dg",
+      "DPO": "/tableau-de-bord/dpo",
+      "CIL": "/tableau-de-bord/cil",
+      "Usager": "/tableau-de-bord/usager",
+      "UTILISATEUR_METIER": "/tableau-de-bord/utilisateur-metier",
+    };
+
+  // Guard: données manquantes ou corrompues
+  if (!data || !data.type) {
+    toast("Veuillez vous connecter");
+    navigate("/connexion");
+    return;
+  }
+  
+  if (data.fonction === "Administrateur Système") {
+    navigate("/tableau-de-bord");
+    return;
+  }
+  
+  const route = ROUTES_PAR_TYPE[data.type];
+  
+  if (!route) {
+    toast("Veuillez vous connecter");
+    navigate("/connexion");
+    return;
+  }
+  
+  // Vérification explicite du statut
+  const estActif = data.actif === true || data.actif === "true";
+  navigate(estActif ? route : "/compte-inactif");
+
 
   } catch (err) {
       toast("Veuillez vous connecter");
@@ -38,10 +66,11 @@ const fonctionController = async (adresseEmail, navigate) => {
   }
 };
 
-export default function Chargement({ texte = "Chargement" }) {
+export default function Chargement({ texte = "Chargement" , email }) {
   const navigate = useNavigate();
   useEffect(() => {
-    fonctionController("admin@cil.com", navigate);
+    const adresse = email || localStorage.getItem("email");
+    fonctionController( adresse , navigate);
   }, []);
 
   return (

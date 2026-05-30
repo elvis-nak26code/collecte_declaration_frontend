@@ -1,7 +1,8 @@
 import { useState } from "react";
 import Logo from "../../assets/logosofitex.jpeg";
 import { Link } from "react-router-dom";
-import bg2 from "../../assets/bg2.jpg";
+import bg2 from "../../assets/bg2.png";
+import toast from "react-hot-toast";
 
 /* ─────────────────────────────────────────────
    COMPOSANTS UI
@@ -165,15 +166,16 @@ export default function Inscription() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      alert("Inscription réussie !");
+    
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         throw new Error(err.message || "Erreur lors de l'inscription");
       }
       setStep(3);
+      toast.success("Votre demande d'accès a été envoyée avec succès !");
     } catch (err) {
-      alert("Erreur : " + err.message);
-      
+      // alert("Erreur : " + err.message);
+      toast.error("Échec de l'inscription : " + err.message);
       console.error(err);
       setErrors({ submit: err.message });
     } finally {
@@ -492,45 +494,84 @@ export default function Inscription() {
 
           {/* ═══ ÉTAPE 3 — Succès ═══ */}
           {step === 3 && (
-            <div className="flex flex-col items-center py-4 text-center">
-              <div className="w-16 h-16 rounded flex items-center justify-center mb-4"
-                style={{ background: "linear-gradient(135deg, #2ea65a 0%, #1a7a3f 100%)", boxShadow: "0 8px 24px rgba(30,120,60,0.35)" }}>
-                <IconCheck />
-              </div>
-              <h2 className="text-lg font-bold mb-1" style={{ color: "white", fontFamily: "Georgia, serif" }}>Demande envoyée !</h2>
-              <p className="text-sm mb-5" style={{ color: "rgba(255,255,255,0.65)" }}>
-                Votre compte a bien été créé. Votre demande d'accès est en attente de validation.
-              </p>
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded mb-5"
-                style={{ background: "rgba(241,196,15,0.12)", border: "1px solid rgba(241,196,15,0.25)" }}>
-                <span className="inline-block w-2 h-2 rounded" style={{ background: "#f39c12" }} />
-                <span className="text-xs font-bold tracking-widest uppercase" style={{ color: "#f8c471", letterSpacing: "0.12em" }}>EN_ATTENTE</span>
-              </div>
-              <div className="w-full rounded p-4 text-left mb-4"
-                style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.15)" }}>
-                <p className="text-xs font-bold mb-2" style={{ color: "rgba(0,255,0,0.7)", letterSpacing: "0.1em" }}>RÉCAPITULATIF</p>
-                {[
-                  ["Nom",             `${prenom} ${nom}`],
-                  ["Email",           email],
-                  ["Type",            USER_TYPES.find(t => t.value === typeUtilisateur)?.label || typeUtilisateur],
-                  ["Date de demande", new Date().toLocaleDateString("fr-FR")],
-                ].map(([k, v]) => (
-                  <div key={k} className="flex justify-between text-xs py-1" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                    <span style={{ color: "rgba(255,255,255,0.50)" }}>{k}</span>
-                    <span className="font-semibold" style={{ color: "white" }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs" style={{ color: "rgba(255,255,255,0.40)" }}>
-                Un administrateur traitera votre demande et vous notifiera par e-mail.
-              </p>
-              <button type="button"
-                onClick={() => { setStep(1); setTypeUtilisateur(""); setNom(""); setPrenom(""); setEmail(""); setMotif(""); }}
-                className="mt-4 underline text-sm font-medium" style={{ color: "rgba(0,255,255,1)" }}>
-                Retour à l'accueil
-              </button>
-            </div>
-          )}
+  <div className="flex flex-col items-center py-4 text-center">
+
+    {/* Icône succès */}
+    <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
+      style={{ background: "rgba(46,166,90,0.20)", border: "1.5px solid rgba(46,166,90,0.50)" }}>
+      <IconCheck />
+    </div>
+
+    {/* Titre */}
+    <h2 className="text-lg font-bold mb-1.5" style={{ color: "white", fontFamily: "Georgia, serif" }}>
+      Demande envoyée !
+    </h2>
+    <p className="text-sm mb-5 leading-relaxed" style={{ color: "rgba(255,255,255,0.60)" }}>
+      Votre compte a bien été créé. Votre demande d'accès est en attente de validation.
+    </p>
+
+    {/* Badge statut */}
+    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-5"
+      style={{
+        background: "rgba(243,156,18,0.12)",
+        border: "1px solid rgba(243,156,18,0.35)"
+      }}>
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#f39c12" }} />
+      <span className="text-xs font-bold uppercase tracking-widest"
+        style={{ color: "#f8c471", letterSpacing: "0.12em" }}>
+        En attente
+      </span>
+    </div>
+
+    {/* Récapitulatif */}
+    <div className="w-full rounded overflow-hidden mb-5"
+      style={{ border: "1px solid rgba(255,255,255,0.15)" }}>
+      <div className="px-4 py-2.5"
+        style={{ background: "rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
+        <p className="text-xs font-bold uppercase tracking-wider text-left m-0"
+          style={{ color: "rgba(0,255,0,0.65)", letterSpacing: "0.10em" }}>
+          Récapitulatif
+        </p>
+      </div>
+      {[
+        ["Nom",             `${prenom} ${nom}`],
+        ["Email",           email],
+        ["Type",            USER_TYPES.find(t => t.value === typeUtilisateur)?.label || typeUtilisateur],
+        ["Date de demande", new Date().toLocaleDateString("fr-FR")],
+      ].map(([k, v], i, arr) => (
+        <div key={k} className="flex justify-between items-center px-4 py-2.5 text-sm"
+          style={{
+            background: i % 2 === 0 ? "rgba(255,255,255,0.03)" : "transparent",
+            borderBottom: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.07)" : "none",
+          }}>
+          <span style={{ color: "rgba(255,255,255,0.50)" }}>{k}</span>
+          <span className="font-semibold" style={{ color: "white" }}>{v}</span>
+        </div>
+      ))}
+    </div>
+
+    {/* Note bas */}
+    <p className="text-xs mb-5" style={{ color: "rgba(255,255,255,0.35)", lineHeight: 1.6 }}>
+      Un administrateur traitera votre demande et vous notifiera par e-mail.
+    </p>
+
+    {/* Bouton retour */}
+    <button type="button"
+      onClick={() => {
+        setStep(1);
+        setTypeUtilisateur(""); setNom(""); setPrenom("");
+        setEmail(""); setMotif("");
+      }}
+      className="flex items-center gap-1.5 text-sm font-medium underline"
+      style={{ color: "rgba(0,255,255,1)", background: "none", border: "none", cursor: "pointer" }}>
+      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17l-5-5m0 0l5-5m-5 5h12" />
+      </svg>
+      Retour à l'accueil
+    </button>
+
+  </div>
+)}
 
           {/* Pied de carte */}
           <div className="flex items-center justify-center gap-1.5 pt-4 mt-2"
