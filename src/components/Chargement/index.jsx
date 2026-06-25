@@ -3,6 +3,11 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from 'react-hot-toast';
 import Compteinactif from "../Compteinactif";
+import { Trio } from 'ldrs/react'
+import 'ldrs/react/Trio.css'
+
+// Default values shown
+
 
 const fonctionController = async (adresseEmail, navigate ) => {
   const token = localStorage.getItem("token");
@@ -85,31 +90,13 @@ export default function Chargement({ texte = "Chargement" , email }) {
       <div className="absolute inset-0 bg-black/30 backdrop-blur-md flex flex-col items-center justify-center gap-5">
 
         {/* Feuilles */}
-        <div className="relative w-16 h-16">
-          {/* Feuille A */}
-          <div className="absolute inset-0 flex items-center justify-center" style={{ animation: "spinA 1.6s linear infinite" }}>
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path
-                d="M14 3C9 3 4 7 4 13C4 19 8 25 14 25C14 19 12 13 14 8C16 13 14 19 14 25C20 25 24 19 24 13C24 7 19 3 14 3Z"
-                fill="white"
-                opacity="0.95"
-              />
-              <line x1="10" y1="8" x2="14" y2="24" stroke="rgba(255,255,255,0.3)" strokeWidth="0.7" />
-            </svg>
-          </div>
 
-          {/* Feuille B (opposée) */}
-          <div className="absolute inset-0 flex items-center justify-center" style={{ animation: "spinB 1.6s linear infinite" }}>
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path
-                d="M14 3C9 3 4 7 4 13C4 19 8 25 14 25C14 19 12 13 14 8C16 13 14 19 14 25C20 25 24 19 24 13C24 7 19 3 14 3Z"
-                fill="rgba(255,255,255,0.55)"
-                opacity="0.95"
-                transform="rotate(180 14 14)"
-              />
-            </svg>
-          </div>
-        </div>
+// Default values shown
+        <Trio
+          size="60"
+          speed="1"
+          color="white" 
+        />
 
         {/* Label */}
         <span className="text-xs tracking-widest uppercase text-white font-bold">

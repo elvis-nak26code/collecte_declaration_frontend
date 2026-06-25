@@ -295,7 +295,7 @@ const handleSubmit = async (e) => {
                 </button>
               </div>
             </div>
-             
+  
              {/* En tant que */}
             {/* <div>
               <label
@@ -372,9 +372,7 @@ const handleSubmit = async (e) => {
         </div>
       </div>
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-      `}</style>
+      <style>{` @keyframes spin { to { transform: rotate(360deg); } }`}</style>
       
     {chargement && <Chargement texte={"BIEN VENUE : CHARGEMENT DU TABLEAU DE BORD . . ."} email={email} />}
     {/* <Chargement texte={"BIEN VENUE : CHARGEMENT DU TABLEAU DE BORD . . ."}/> */}
