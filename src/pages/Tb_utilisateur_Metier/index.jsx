@@ -11,7 +11,8 @@ import {
   ChevronLeft, FileText, Trash2, Edit3, MoreHorizontal,
   ArrowUpRight, CheckCircle2, XCircle, Loader2,
   User, UserPlus, UserCheck, Users, ListPlus, Archive,
-  BookOpen, PackageOpen, MoveRight, CheckSquare, Square
+  BookOpen, PackageOpen, MoveRight, CheckSquare, Square,
+  MessageSquare, AlertTriangle, ClipboardList, Pencil
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════
@@ -88,11 +89,15 @@ const Badge = ({ type, label }) => {
     ANNULEE:    { bg: T.grayBg,    color: T.gray,   border: T.grayBorder,   text: label || "Annulée" },
     SUSPENDU:   { bg: T.yellowBg,  color: T.yellow, border: T.yellowBorder, text: label || "Suspendu" },
     EN_ATTENTE: { bg: T.yellowBg,  color: T.yellow, border: T.yellowBorder, text: label || "En attente" },
+    ACCEPTEE:   { bg: T.greenBg,   color: T.green,  border: T.greenBorder,  text: label || "Acceptée" },
+    REJETEE:    { bg: T.redBg,     color: T.red,    border: T.redBorder,    text: label || "Rejetée" },
     sensible:   { bg: T.redBg,     color: T.red,    border: T.redBorder,    text: "Sensible" },
     normal:     { bg: T.greenBg,   color: T.green,  border: T.greenBorder,  text: "Standard" },
     EN_LIGNE:   { bg: T.tealBg,    color: T.teal,   border: T.tealBorder,   text: "En ligne" },
     TERRAIN:    { bg: T.purpleBg,  color: T.purple, border: T.purpleBorder, text: "Terrain" },
     entrepot:   { bg: T.orangeBg,  color: T.orange, border: T.orangeBorder, text: "Entrepôt" },
+    MODIFICATION: { bg: T.blueBg,  color: T.blue,   border: T.blueBorder,   text: "Modification" },
+    SUPPRESSION:  { bg: T.redBg,   color: T.red,    border: T.redBorder,    text: "Suppression" },
   };
   const s = map[type] || map.EN_ATTENTE;
   return (
@@ -115,10 +120,11 @@ const PageHeader = ({ title, subtitle, children }) => (
 
 const Btn = ({ children, onClick, variant = "outline", style = {}, disabled = false }) => {
   const base = { borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 6, border: "none", opacity: disabled ? 0.5 : 1, transition: "all 0.15s", ...style };
-  if (variant === "primary")  return <button onClick={onClick} disabled={disabled} style={{ ...base, background: "#0D1F12", color: "#fff" }}>{children}</button>;
+  if (variant === "primary")  return <button onClick={onClick} disabled={disabled} style={{ ...base, background: "#1A5C2A", color: "#fff" }}>{children}</button>;
   if (variant === "danger")   return <button onClick={onClick} disabled={disabled} style={{ ...base, background: T.redBg, color: T.red, border: `1px solid ${T.redBorder}` }}>{children}</button>;
   if (variant === "success")  return <button onClick={onClick} disabled={disabled} style={{ ...base, background: T.greenBg, color: T.green, border: `1px solid ${T.greenBorder}` }}>{children}</button>;
   if (variant === "orange")   return <button onClick={onClick} disabled={disabled} style={{ ...base, background: T.orangeBg, color: T.orange, border: `1px solid ${T.orangeBorder}` }}>{children}</button>;
+  if (variant === "blue")     return <button onClick={onClick} disabled={disabled} style={{ ...base, background: T.blueBg, color: T.blue, border: `1px solid ${T.blueBorder}` }}>{children}</button>;
   return <button onClick={onClick} disabled={disabled} style={{ ...base, background: "transparent", color: T.textSecondary, border: `1px solid ${T.cardBorder}` }}>{children}</button>;
 };
 
@@ -151,17 +157,126 @@ const ErrorBanner = ({ message }) => (
 );
 
 // ═══════════════════════════════════════════════════════
+//  PANNEAU NOTIFICATIONS — bug compteur corrigé
+// ═══════════════════════════════════════════════════════
+const PanneauNotifications = ({ userId, onClose, onCountChange }) => {
+  const [notifs, setNotifs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const ref = useRef();
+
+  useEffect(() => {
+    const init = async () => {
+      if (!userId) { setLoading(false); return; }
+      try {
+        const data = await apiFetch(`/api/notifications/${userId}`);
+        const sorted = [...data].sort((a, b) => b.idNotification - a.idNotification);
+        setNotifs(sorted);
+
+        // Marquer comme lues PUIS mettre le compteur à 0
+        await apiFetch(`/api/notifications/${userId}/lire-tout`, { method: "PATCH" })
+          .catch(() => {});
+        onCountChange(0);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    init();
+  }, [userId]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    setTimeout(() => document.addEventListener("mousedown", handler), 0);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const typeColor = {
+    ALERTE: T.red, RAPPEL: T.yellow, CONFIRMATION: T.green,
+    RELANCE: T.yellow, DEMANDE_MODIFICATION: T.blue,
+    DEMANDE_SUPPRESSION: T.red, PLAINTE: T.purple,
+  };
+  const typeLabel = {
+    ALERTE: "Alerte", RAPPEL: "Rappel", CONFIRMATION: "Confirmation",
+    RELANCE: "Relance", DEMANDE_MODIFICATION: "Modif.",
+    DEMANDE_SUPPRESSION: "Suppression", PLAINTE: "Plainte",
+  };
+
+  return (
+    <div ref={ref} style={{
+      position: "absolute", top: "calc(100% + 10px)", right: 0, width: 380,
+      background: T.cardBg, border: `1px solid ${T.cardBorder}`, borderRadius: 14,
+      boxShadow: "0 20px 50px rgba(0,0,0,0.22)", zIndex: 300, overflow: "hidden",
+    }}>
+      <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: T.grayBg }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Bell size={14} color={T.gold} />
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.textPrimary }}>Notifications</div>
+          {notifs.length > 0 && (
+            <span style={{ fontSize: 10, background: T.goldLight, color: T.gold, border: `1px solid ${T.goldBorder}`, padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>
+              {notifs.length}
+            </span>
+          )}
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: T.textMuted, display: "flex", padding: 4, borderRadius: 6 }}>
+          <X size={15} />
+        </button>
+      </div>
+      <div style={{ maxHeight: 420, overflowY: "auto" }}>
+        {loading && (
+          <div style={{ padding: 32, textAlign: "center" }}>
+            <Spinner dark />
+            <div style={{ marginTop: 8, fontSize: 12, color: T.textMuted }}>Chargement…</div>
+          </div>
+        )}
+        {!loading && notifs.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: 13 }}>
+            <Bell size={28} color={T.cardBorder} style={{ display: "block", margin: "0 auto 10px" }} />
+            Aucune notification
+          </div>
+        )}
+        {!loading && notifs.map((n, i) => {
+          const col = typeColor[n.typeNotification] || T.textMuted;
+          return (
+            <div key={n.idNotification} style={{
+              padding: "12px 16px",
+              borderBottom: i < notifs.length - 1 ? `1px solid ${T.cardBorder}` : "none",
+              display: "flex", gap: 10, alignItems: "flex-start",
+            }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: col, flexShrink: 0, marginTop: 5 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, background: `${col}20`, color: col, padding: "1px 6px", borderRadius: 4 }}>
+                    {typeLabel[n.typeNotification] || n.typeNotification}
+                  </span>
+                  <span style={{ fontSize: 10, color: T.textMuted }}>{n.dateEnvoi}</span>
+                </div>
+                <div style={{ fontSize: 12, color: T.textSecondary, lineHeight: 1.5 }}>{n.contenu}</div>
+                {n.dateEcheance && <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>Échéance : {n.dateEcheance}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════
 //  SIDEBAR
 // ═══════════════════════════════════════════════════════
 const Sidebar = ({ active, setActive, collapsed, userName, userService, userInitials }) => {
   const navigate = useNavigate();
   const nav = [
-    { id: "dashboard",   label: "Tableau de bord",     Icon: LayoutDashboard },
-    { id: "sessions",    label: "Sessions de collecte", Icon: FolderOpen },
-    { id: "traitements", label: "Traitements",          Icon: Cpu },
-    { id: "donnees",     label: "Données collectées",   Icon: Database },
-    { id: "entrepot",    label: "Entrepôt de données",  Icon: Archive },
-    { id: "import",      label: "Import fichier",       Icon: Upload },
+    { id: "dashboard",   label: "Tableau de bord",        Icon: LayoutDashboard },
+    { id: "sessions",    label: "Sessions de collecte",   Icon: FolderOpen },
+    { id: "traitements", label: "Traitements",            Icon: Cpu },
+    { id: "donnees",     label: "Données collectées",     Icon: Database },
+    { id: "entrepot",    label: "Entrepôt de données",    Icon: Archive },
+    { id: "import",      label: "Import fichier",         Icon: Upload },
+    { id: "demandes",    label: "Demandes citoyens",      Icon: ClipboardList },
   ];
 
   return (
@@ -205,33 +320,65 @@ const Sidebar = ({ active, setActive, collapsed, userName, userService, userInit
 };
 
 // ═══════════════════════════════════════════════════════
-//  TOPBAR
+//  TOPBAR — sans rectangle utilisateur, cloche corrigée
 // ═══════════════════════════════════════════════════════
-const TopBar = ({ onToggle, userName, userInitials }) => (
-  <header style={{ height: 56, background: T.sidebarBg, borderBottom: `1px solid ${T.sidebarBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", flexShrink: 0, zIndex: 100 }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-      <button onClick={onToggle} style={{ background: "transparent", border: "none", color: T.sidebarText, cursor: "pointer", padding: 6, borderRadius: 6, display: "flex" }}>
-        <Menu size={18} />
-      </button>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#E2E8F0", letterSpacing: "0.04em" }}>
-        SOFITEX — Espace Utilisateur Métier
-      </div>
-    </div>
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <button style={{ background: "transparent", border: "none", color: T.sidebarText, cursor: "pointer", padding: 7, borderRadius: 7, display: "flex", position: "relative" }}>
-        <Bell size={17} />
-      </button>
-      <div style={{ width: 1, height: 20, background: T.sidebarBorder }} />
-      <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.navAccentBg, border: `1px solid ${T.navAccentBorder}`, borderRadius: 8, padding: "5px 10px" }}>
-        <Avatar initials={userInitials} size={26} />
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#F1F5F9" }}>{userName}</div>
-          <div style={{ fontSize: 10, color: T.sidebarText }}>Utilisateur Métier</div>
+const TopBar = ({ onToggle, userId }) => {
+  const [showNotifs, setShowNotifs] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!userId) return;
+    // Charger le compteur de non-lues au montage
+    apiFetch(`/api/notifications/${userId}/non-lues`)
+      .then(data => setUnreadCount(Array.isArray(data) ? data.length : 0))
+      .catch(() => {});
+  }, [userId]);
+
+  const handleBellClick = () => {
+    setShowNotifs(v => !v);
+  };
+
+  return (
+    <header style={{ height: 56, background: T.sidebarBg, borderBottom: `1px solid ${T.sidebarBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", flexShrink: 0, zIndex: 100 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <button onClick={onToggle} style={{ background: "transparent", border: "none", color: T.sidebarText, cursor: "pointer", padding: 6, borderRadius: 6, display: "flex" }}>
+          <Menu size={18} />
+        </button>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#E2E8F0", letterSpacing: "0.04em" }}>
+          SOFITEX — Espace Utilisateur Métier
         </div>
       </div>
-    </div>
-  </header>
-);
+
+      {/* Cloche uniquement, sans rectangle utilisateur */}
+      <div style={{ position: "relative" }}>
+        <button
+          onClick={handleBellClick}
+          style={{ background: showNotifs ? "rgba(52,168,103,0.15)" : "transparent", border: "none", color: T.sidebarText, cursor: "pointer", padding: 7, borderRadius: 7, display: "flex", position: "relative" }}>
+          <Bell size={17} />
+          {unreadCount > 0 && (
+            <span style={{
+              position: "absolute", top: 3, right: 3,
+              minWidth: 16, height: 16, padding: "0 3px",
+              background: T.red, borderRadius: 10,
+              fontSize: 9, fontWeight: 700, color: "#fff",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              border: `2px solid ${T.sidebarBg}`,
+            }}>
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
+        {showNotifs && (
+          <PanneauNotifications
+            userId={userId}
+            onClose={() => setShowNotifs(false)}
+            onCountChange={setUnreadCount}
+          />
+        )}
+      </div>
+    </header>
+  );
+};
 
 // ═══════════════════════════════════════════════════════
 //  SECTION : TABLEAU DE BORD
@@ -240,6 +387,7 @@ const SectionDashboard = ({ setSection, setSelectedSession, userId, userName }) 
   const [sessions,    setSessions]    = useState([]);
   const [traitements, setTraitements] = useState([]);
   const [entrepot,    setEntrepot]    = useState([]);
+  const [demandes,    setDemandes]    = useState([]);
   const [loading,     setLoading]     = useState(true);
 
   useEffect(() => {
@@ -251,6 +399,8 @@ const SectionDashboard = ({ setSection, setSelectedSession, userId, userName }) 
         if (userId) {
           const t = await apiFetch(`/api/traitements/utilisateur-metier/${userId}`);
           setTraitements(t);
+          const d = await apiFetch(`/api/demandes/en-attente?umId=${userId}`);
+          setDemandes(d);
         }
         const e = await apiFetch("/api/entrepot");
         setEntrepot(e);
@@ -264,10 +414,11 @@ const SectionDashboard = ({ setSection, setSelectedSession, userId, userName }) 
   const totalDonnees    = traitements.reduce((acc, t) => acc + (t.nombreDonnee || 0), 0);
 
   const stats = [
-    { label: "Sessions actives",    value: sessionsActives.length,   sub: "en cours",          color: T.blue,   bg: T.blueBg,   border: T.blueBorder,   Icon: FolderOpen },
-    { label: "Mes traitements",     value: traitements.length,        sub: "tous statuts",      color: T.teal,   bg: T.tealBg,   border: T.tealBorder,   Icon: Cpu },
-    { label: "Données collectées",  value: totalDonnees.toLocaleString("fr"), sub: "rattachées à un traitement", color: T.green, bg: T.greenBg, border: T.greenBorder, Icon: Database },
-    { label: "Entrepôt",            value: entrepot.length,           sub: "en attente d'affectation", color: T.orange, bg: T.orangeBg, border: T.orangeBorder, Icon: Archive },
+    { label: "Sessions actives",    value: sessionsActives.length,         sub: "en cours",                    color: T.blue,   bg: T.blueBg,   border: T.blueBorder,   Icon: FolderOpen,    action: null },
+    { label: "Mes traitements",     value: traitements.length,             sub: "tous statuts",                color: T.teal,   bg: T.tealBg,   border: T.tealBorder,   Icon: Cpu,           action: null },
+    { label: "Données collectées",  value: totalDonnees.toLocaleString("fr"), sub: "rattachées à un traitement", color: T.green, bg: T.greenBg, border: T.greenBorder,  Icon: Database,      action: null },
+    { label: "Entrepôt",            value: entrepot.length,                sub: "en attente d'affectation",   color: T.orange, bg: T.orangeBg, border: T.orangeBorder, Icon: Archive,       action: "entrepot" },
+    { label: "Demandes en attente", value: demandes.length,                sub: "modifications / suppressions",color: T.red,   bg: T.redBg,   border: T.redBorder,    Icon: ClipboardList, action: "demandes" },
   ];
 
   const prenomUser = userName?.split(" ")[0] || "Utilisateur";
@@ -278,23 +429,23 @@ const SectionDashboard = ({ setSection, setSelectedSession, userId, userName }) 
         title="Tableau de bord"
         subtitle={`Bonjour ${prenomUser} — ${new Date().toLocaleDateString("fr-FR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`}
       />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 14, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 12, marginBottom: 20 }}>
         {stats.map((s, i) => (
-          <Card key={i} style={{ padding: "18px 20px", position: "relative", overflow: "hidden", cursor: "pointer" }}
-            onClick={() => { if (i === 3) setSection("entrepot"); }}>
+          <Card key={i} style={{ padding: "16px 18px", position: "relative", overflow: "hidden", cursor: s.action ? "pointer" : "default" }}
+            onClick={() => s.action && setSection(s.action)}>
             <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: s.color, borderRadius: "12px 12px 0 0" }} />
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
-              <div style={{ width: 38, height: 38, borderRadius: 10, background: s.bg, border: `1px solid ${s.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: s.color }}>
-                <s.Icon size={18} strokeWidth={1.8} />
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: s.bg, border: `1px solid ${s.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: s.color }}>
+                <s.Icon size={17} strokeWidth={1.8} />
               </div>
-              <ArrowUpRight size={13} color={s.color} style={{ opacity: 0.4, marginTop: 4 }} />
+              {s.action && <ArrowUpRight size={13} color={s.color} style={{ opacity: 0.4, marginTop: 4 }} />}
             </div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textMuted, marginBottom: 4 }}>{s.label}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textMuted, marginBottom: 3 }}>{s.label}</div>
             {loading
-              ? <div style={{ height: 26, width: 60, background: T.grayBg, borderRadius: 6, marginBottom: 4 }} />
-              : <div style={{ fontSize: 26, fontWeight: 800, color: T.textPrimary, lineHeight: 1, letterSpacing: "-0.02em", fontFamily: "'DM Mono', monospace" }}>{s.value}</div>
+              ? <div style={{ height: 24, width: 50, background: T.grayBg, borderRadius: 6, marginBottom: 3 }} />
+              : <div style={{ fontSize: 24, fontWeight: 800, color: T.textPrimary, lineHeight: 1, letterSpacing: "-0.02em", fontFamily: "'DM Mono', monospace" }}>{s.value}</div>
             }
-            <div style={{ fontSize: 11, color: s.color, marginTop: 5, fontWeight: 500 }}>{s.sub}</div>
+            <div style={{ fontSize: 10, color: s.color, marginTop: 4, fontWeight: 500 }}>{s.sub}</div>
           </Card>
         ))}
       </div>
@@ -329,25 +480,28 @@ const SectionDashboard = ({ setSection, setSelectedSession, userId, userName }) 
         <Card style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Archive size={15} color={T.orange} />
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: T.textPrimary }}>Dernières entrées entrepôt</h3>
+              <ClipboardList size={15} color={T.red} />
+              <h3 style={{ fontSize: 13, fontWeight: 700, color: T.textPrimary }}>Demandes en attente</h3>
+              {demandes.length > 0 && <span style={{ fontSize: 10, background: T.redBg, color: T.red, border: `1px solid ${T.redBorder}`, padding: "1px 7px", borderRadius: 10, fontWeight: 700 }}>{demandes.length}</span>}
             </div>
-            <button onClick={() => setSection("entrepot")} style={{ fontSize: 12, color: T.gold, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Voir tout →</button>
+            <button onClick={() => setSection("demandes")} style={{ fontSize: 12, color: T.gold, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Traiter →</button>
           </div>
           {loading
             ? <div style={{ padding: 24, textAlign: "center" }}><Spinner dark /></div>
-            : entrepot.length === 0
-              ? <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Entrepôt vide</div>
-              : entrepot.slice(0, 5).map((d, i, arr) => (
-                <div key={d.idDonnee} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 18px", borderBottom: i < arr.length - 1 ? `1px solid ${T.grayBg}` : "none" }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: T.orangeBg, border: `1px solid ${T.orangeBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <PackageOpen size={14} color={T.orange} />
+            : demandes.length === 0
+              ? <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucune demande en attente</div>
+              : demandes.slice(0, 4).map((d, i, arr) => (
+                <div key={d.idDemande} onClick={() => setSection("demandes")}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 18px", borderBottom: i < arr.length - 1 ? `1px solid ${T.cardBorder}` : "none", cursor: "pointer" }}
+                  className="row-hover">
+                  <div style={{ width: 30, height: 30, borderRadius: 8, background: d.typeDemande === "SUPPRESSION" ? T.redBg : T.blueBg, border: `1px solid ${d.typeDemande === "SUPPRESSION" ? T.redBorder : T.blueBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {d.typeDemande === "SUPPRESSION" ? <Trash2 size={13} color={T.red} /> : <Pencil size={13} color={T.blue} />}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.personneNomComplet || "—"}</div>
-                    <div style={{ fontSize: 11, color: T.textMuted }}>{d.typeDonneeNom} · {d.valeur}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.usagerNomComplet || d.personneNomComplet || "—"}</div>
+                    <div style={{ fontSize: 11, color: T.textMuted }}>{d.typeDemande} · {d.donneeValeur}</div>
                   </div>
-                  {d.typeDonneeSensible && <Badge type="sensible" />}
+                  <Badge type={d.typeDemande} />
                 </div>
               ))
           }
@@ -358,7 +512,7 @@ const SectionDashboard = ({ setSection, setSelectedSession, userId, userName }) 
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : SESSIONS DE COLLECTE
+//  SECTION : SESSIONS DE COLLECTE — style revu, boutons verts
 // ═══════════════════════════════════════════════════════
 const SectionSessions = ({ setSection, setSelectedSession }) => {
   const [sessions, setSessions] = useState([]);
@@ -378,6 +532,14 @@ const SectionSessions = ({ setSection, setSelectedSession }) => {
 
   const filtered = filter === "all" ? sessions : sessions.filter(s => s.statutSession === filter);
 
+  const statutInfo = {
+    EN_COURS: { color: T.blue,  bg: T.blueBg,  border: T.blueBorder },
+    TERMINEE: { color: T.green, bg: T.greenBg, border: T.greenBorder },
+    ANNULEE:  { color: T.gray,  bg: T.grayBg,  border: T.grayBorder },
+  };
+
+  const typeEmoji = { EN_LIGNE: "🌐", TERRAIN: "📍", entrepot: "🏭" };
+
   return (
     <div className="slide-in">
       <PageHeader title="Sessions de collecte" subtitle="Sessions créées par le DPO et assignées à votre service">
@@ -390,48 +552,75 @@ const SectionSessions = ({ setSection, setSelectedSession }) => {
         </select>
       </PageHeader>
 
-      {loading && <Card style={{ padding: 40, textAlign: "center" }}><Spinner dark /><p style={{ color: T.textMuted, fontSize: 13, marginTop: 12 }}>Chargement des sessions...</p></Card>}
+      {loading && <Card style={{ padding: 40, textAlign: "center" }}><Spinner dark /><p style={{ color: T.textMuted, fontSize: 13, marginTop: 12 }}>Chargement des sessions…</p></Card>}
       {!loading && error && <ErrorBanner message={error} />}
       {!loading && !error && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {filtered.map(s => (
-            <Card key={s.idSession} style={{ padding: 0, overflow: "hidden" }}>
-              <div style={{ display: "flex", alignItems: "stretch" }}>
-                <div style={{ width: 4, background: s.statutSession === "EN_COURS" ? T.blue : s.statutSession === "TERMINEE" ? T.green : T.gray, flexShrink: 0 }} />
-                <div style={{ flex: 1, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 10, background: s.statutSession === "EN_COURS" ? T.blueBg : T.grayBg, border: `1px solid ${s.statutSession === "EN_COURS" ? T.blueBorder : T.grayBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <FolderOpen size={20} color={s.statutSession === "EN_COURS" ? T.blue : T.gray} strokeWidth={1.5} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary }}>{s.nomSession || `Session #${s.idSession}`}</span>
-                      <Badge type={s.statutSession} />
-                      <Badge type={s.typeCollecte} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 16 }}>
+          {filtered.map(s => {
+            const si = statutInfo[s.statutSession] || statutInfo.ANNULEE;
+            const isActive = s.statutSession === "EN_COURS";
+            return (
+              <Card key={s.idSession} style={{ padding: 0, overflow: "hidden" }}>
+                <div style={{ height: 4, background: si.color }} />
+                <div style={{ padding: "20px 22px" }}>
+                  {/* En-tête de la card */}
+                  <div style={{ display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 18 }}>
+                    <div style={{ width: 50, height: 50, borderRadius: 14, background: si.bg, border: `1.5px solid ${si.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>
+                      {typeEmoji[s.typeCollecte] || "📁"}
                     </div>
-                    <div style={{ display: "flex", gap: 20, fontSize: 12, color: T.textMuted, flexWrap: "wrap" }}>
-                      <span>📍 {s.lieu || "—"}</span>
-                      <span>📅 {s.dateDebut?.split("T")[0] || "—"}{s.dateFin ? ` → ${s.dateFin.split("T")[0]}` : ""}</span>
-                      <span>🔧 {s.nombreTraitements} traitement(s)</span>
-                      <span>👤 DPO: {s.dpoNomComplet || "—"}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: T.textPrimary, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {s.nomSession || `Session #${s.idSession}`}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                        <Badge type={s.statutSession} />
+                        {s.typeCollecte && <Badge type={s.typeCollecte} />}
+                        <span style={{ fontSize: 10, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>#{s.idSession}</span>
+                      </div>
                     </div>
-                    {s.description && <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 4 }}>{s.description}</div>}
                   </div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.textMuted }}>#{s.idSession}</span>
-                    {s.statutSession !== "ANNULEE" && (
-                      <Btn variant="primary" onClick={() => { setSelectedSession(String(s.idSession)); setSection("traitements"); }} style={{ fontSize: 12, padding: "7px 14px" }}>
-                        <Eye size={13} /> Voir traitements
-                      </Btn>
-                    )}
+
+                  {/* Grille d'infos */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.grayBg, borderRadius: 10 }}>
+                    {[
+                      { label: "📍 Lieu",         value: s.lieu || "—" },
+                      { label: "👤 DPO",           value: s.dpoNomComplet || "—" },
+                      { label: "📅 Début",         value: s.dateDebut?.split("T")[0] || "—" },
+                      { label: "🔧 Traitements",   value: `${s.nombreTraitements ?? 0}` },
+                    ].map(({ label, value }) => (
+                      <div key={label}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>{label}</div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: T.textSecondary }}>{value}</div>
+                      </div>
+                    ))}
                   </div>
+
+                  {s.description && (
+                    <p style={{ fontSize: 12, color: T.textMuted, marginBottom: 14, lineHeight: 1.6, padding: "8px 12px", background: `${si.color}08`, borderRadius: 8, borderLeft: `3px solid ${si.color}` }}>
+                      {s.description}
+                    </p>
+                  )}
+
+                  {s.statutSession !== "ANNULEE" ? (
+                    <Btn
+                      variant="success"
+                      onClick={() => { setSelectedSession(String(s.idSession)); setSection("traitements"); }}
+                      style={{ width: "100%", justifyContent: "center" }}>
+                      <Eye size={13} /> Voir les traitements
+                    </Btn>
+                  ) : (
+                    <div style={{ textAlign: "center", fontSize: 12, color: T.textMuted, fontStyle: "italic", padding: "8px 0", background: T.grayBg, borderRadius: 8 }}>
+                      Session annulée — consultation désactivée
+                    </div>
+                  )}
                 </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
           {filtered.length === 0 && (
-            <Card style={{ padding: 40, textAlign: "center" }}>
-              <p style={{ color: T.textMuted, fontSize: 13, fontStyle: "italic" }}>Aucune session pour ce filtre.</p>
-            </Card>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <EmptyState icon={FolderOpen} message="Aucune session pour ce filtre." />
+            </div>
           )}
         </div>
       )}
@@ -440,7 +629,7 @@ const SectionSessions = ({ setSection, setSelectedSession }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  MODALE : CRÉER TRAITEMENT (wizard inchangé, résumé)
+//  MODALE : CRÉER/MODIFIER TRAITEMENT (wizard 7 étapes)
 // ═══════════════════════════════════════════════════════
 const WIZARD_STEPS = [
   { id: 1, label: "Identification",      Icon: FileText },
@@ -520,69 +709,98 @@ const StepIntro = ({ title, subtitle }) => (
   </div>
 );
 
-const ModalCreerTraitement = ({ sessionId, userId, onClose, onSave }) => {
+const ModalCreerTraitement = ({ sessionId, userId, onClose, onSave, traitementExistant = null }) => {
+  const isEdit = !!traitementExistant;
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState(wizardInitialForm);
+  const [form, setForm] = useState(traitementExistant ? {
+    ...wizardInitialForm,
+    nom: traitementExistant.nom || "",
+    description: traitementExistant.description || "",
+    department: traitementExistant.department || "",
+    texte: traitementExistant.texte || "",
+    certificationSecurite: traitementExistant.certificationSecurite || "",
+    dureeConservation: traitementExistant.dureeConservation ? String(traitementExistant.dureeConservation) : "",
+  } : wizardInitialForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const totalSteps = WIZARD_STEPS.length;
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const step1Valid = form.description.trim() && form.denominationTraitement.trim();
-  const goNext = () => { if (step === 1 && !step1Valid) { setError("La description et la dénomination sont obligatoires."); return; } setError(""); setStep(s => Math.min(s + 1, totalSteps)); };
+  const goNext = () => { if (step === 1 && !isEdit && !step1Valid) { setError("La description et la dénomination sont obligatoires."); return; } setError(""); setStep(s => Math.min(s + 1, totalSteps)); };
   const goBack = () => { setError(""); setStep(s => Math.max(s - 1, 1)); };
-  const goToStep = (n) => { if (n > step && !step1Valid) { setError("Complétez l'étape Identification d'abord."); return; } setError(""); setStep(n); };
+  const goToStep = (n) => { setError(""); setStep(n); };
 
   const handleSave = async () => {
-    if (!step1Valid) { setError("La description et la dénomination sont obligatoires."); setStep(1); return; }
-    if (!userId) { setError("Identifiant utilisateur manquant. Reconnectez-vous."); return; }
     setLoading(true); setError("");
     try {
-      const traitementPayload = {
-        nom: form.nom.trim() || form.description.trim(), description: form.description.trim(),
-        department: form.department.trim() || null, texte: form.texte.trim() || null,
-        certificationSecurite: form.certificationSecurite.trim() || null,
-        dureeConservation: form.dureeConservation ? parseInt(form.dureeConservation, 10) : null,
-        utilisateurMetierId: parseInt(userId, 10),
-        sessionCollecteId: sessionId ? parseInt(sessionId, 10) : null,
-        secteur: form.secteur.trim() || null, lieuStockage: form.lieuStockage.trim() || null,
-        dureeConservationDeclaration: form.dureeConservationDeclaration.trim() || null,
-        dateMiseEnOeuvre: form.dateMiseEnOeuvre || null,
-        transfertEtranger: form.transfertEtranger, sousTraitance: form.sousTraitance,
-        communicationTiers: form.communicationTiers,
-        nomPrenomResponsable: form.nomPrenomResponsable.trim() || null,
-        fonctionResponsable: form.fonctionResponsable.trim() || null,
-        contactConfidentialite: form.contactConfidentialite.trim() || null,
-        natureDemande: form.natureDemande || null,
-        categoriesDonnees: form.categoriesDonnees.trim() || null,
-        origineDonnees: form.origineDonnees.trim() || null,
-        destinataireConformeCil: form.destinataireConformeCil,
-        mesuresSecurite: form.mesuresSecurite.trim() || null,
-        mesuresSensibilisation: form.mesuresSensibilisation,
-        politiqueAccesBatiments: form.politiqueAccesBatiments,
-        categoriesPersonnesAcces: form.categoriesPersonnesAcces.trim() || null,
-        denominationTraitement: form.denominationTraitement.trim(),
-        finaliteTraitement: form.finaliteTraitement.trim() || null,
-        categoriesPersonnesConcernees: form.categoriesPersonnesConcernees.trim() || null,
-        nombrePersonnesConcernees: form.nombrePersonnesConcernees ? parseInt(form.nombrePersonnesConcernees, 10) : null,
-        typeTraitement: form.typeTraitement.trim() || null,
-        nomRaisonSociale: form.nomRaisonSociale.trim() || null, rccm: form.rccm.trim() || null,
-        secteurActivite: form.secteurActivite.trim() || null, adresse: form.adresse.trim() || null,
-        boitePostale: form.boitePostale.trim() || null, ville: form.ville.trim() || null,
-        telephone: form.telephone.trim() || null, adresseEmail: form.adresseEmail.trim() || null,
-        activitePrincipale: form.activitePrincipale.trim() || null,
-      };
-      const declarationPayload = { traitementId: null };
-      const formData = new FormData();
-      formData.append("traitement", new Blob([JSON.stringify(traitementPayload)], { type: "application/json" }));
-      formData.append("declaration", new Blob([JSON.stringify(declarationPayload)], { type: "application/json" }));
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API}/api/traitements/normale`, {
-        method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {}, body: formData,
-      });
-      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || `Erreur ${res.status}`); }
-      const data = await res.json();
-      onSave(data); onClose(); toast.success("Traitement créé avec succès !");
-    } catch (e) { setError(e.message || "Erreur lors de la création."); }
+      if (isEdit) {
+        // Mode modification — PUT simple
+        const payload = {
+          nom: form.nom.trim() || form.description.trim(),
+          description: form.description.trim(),
+          department: form.department.trim() || null,
+          texte: form.texte.trim() || null,
+          certificationSecurite: form.certificationSecurite.trim() || null,
+          dureeConservation: form.dureeConservation ? parseInt(form.dureeConservation, 10) : null,
+          utilisateurMetierId: parseInt(userId, 10),
+          sessionCollecteId: sessionId ? parseInt(sessionId, 10) : null,
+        };
+        const updated = await apiFetch(`/api/traitements/${traitementExistant.idTraitement}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+        onSave(updated); onClose(); toast.success("Traitement modifié avec succès !");
+      } else {
+        // Mode création
+        if (!step1Valid) { setError("La description et la dénomination sont obligatoires."); setStep(1); setLoading(false); return; }
+        if (!userId) { setError("Identifiant utilisateur manquant. Reconnectez-vous."); setLoading(false); return; }
+        const traitementPayload = {
+          nom: form.nom.trim() || form.description.trim(), description: form.description.trim(),
+          department: form.department.trim() || null, texte: form.texte.trim() || null,
+          certificationSecurite: form.certificationSecurite.trim() || null,
+          dureeConservation: form.dureeConservation ? parseInt(form.dureeConservation, 10) : null,
+          utilisateurMetierId: parseInt(userId, 10),
+          sessionCollecteId: sessionId ? parseInt(sessionId, 10) : null,
+          secteur: form.secteur.trim() || null, lieuStockage: form.lieuStockage.trim() || null,
+          dureeConservationDeclaration: form.dureeConservationDeclaration.trim() || null,
+          dateMiseEnOeuvre: form.dateMiseEnOeuvre || null,
+          transfertEtranger: form.transfertEtranger, sousTraitance: form.sousTraitance,
+          communicationTiers: form.communicationTiers,
+          nomPrenomResponsable: form.nomPrenomResponsable.trim() || null,
+          fonctionResponsable: form.fonctionResponsable.trim() || null,
+          contactConfidentialite: form.contactConfidentialite.trim() || null,
+          natureDemande: form.natureDemande || null,
+          categoriesDonnees: form.categoriesDonnees.trim() || null,
+          origineDonnees: form.origineDonnees.trim() || null,
+          destinataireConformeCil: form.destinataireConformeCil,
+          mesuresSecurite: form.mesuresSecurite.trim() || null,
+          mesuresSensibilisation: form.mesuresSensibilisation,
+          politiqueAccesBatiments: form.politiqueAccesBatiments,
+          categoriesPersonnesAcces: form.categoriesPersonnesAcces.trim() || null,
+          denominationTraitement: form.denominationTraitement.trim(),
+          finaliteTraitement: form.finaliteTraitement.trim() || null,
+          categoriesPersonnesConcernees: form.categoriesPersonnesConcernees.trim() || null,
+          nombrePersonnesConcernees: form.nombrePersonnesConcernees ? parseInt(form.nombrePersonnesConcernees, 10) : null,
+          typeTraitement: form.typeTraitement.trim() || null,
+          nomRaisonSociale: form.nomRaisonSociale.trim() || null, rccm: form.rccm.trim() || null,
+          secteurActivite: form.secteurActivite.trim() || null, adresse: form.adresse.trim() || null,
+          boitePostale: form.boitePostale.trim() || null, ville: form.ville.trim() || null,
+          telephone: form.telephone.trim() || null, adresseEmail: form.adresseEmail.trim() || null,
+          activitePrincipale: form.activitePrincipale.trim() || null,
+        };
+        const declarationPayload = { traitementId: null };
+        const formData = new FormData();
+        formData.append("traitement", new Blob([JSON.stringify(traitementPayload)], { type: "application/json" }));
+        formData.append("declaration", new Blob([JSON.stringify(declarationPayload)], { type: "application/json" }));
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API}/api/traitements/normale`, {
+          method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {}, body: formData,
+        });
+        if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || `Erreur ${res.status}`); }
+        const data = await res.json();
+        onSave(data); onClose(); toast.success("Traitement créé avec succès !");
+      }
+    } catch (e) { setError(e.message || "Erreur lors de la sauvegarde."); }
     finally { setLoading(false); }
   };
 
@@ -592,134 +810,161 @@ const ModalCreerTraitement = ({ sessionId, userId, onClose, onSave }) => {
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(8,15,11,0.55)", zIndex: 900, backdropFilter: "blur(3px)" }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 901, width: 680, maxWidth: "92vw", height: 600, maxHeight: "90vh", background: T.cardBg, borderRadius: 18, boxShadow: "0 30px 70px rgba(0,0,0,0.28)", border: `1px solid ${T.cardBorder}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 901, width: 680, maxWidth: "92vw", height: isEdit ? 420 : 600, maxHeight: "90vh", background: T.cardBg, borderRadius: 18, boxShadow: "0 30px 70px rgba(0,0,0,0.28)", border: `1px solid ${T.cardBorder}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${T.cardBorder}`, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: T.blueBg, border: `1px solid ${T.blueBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Plus size={17} color={T.blue} />
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: isEdit ? 0 : 14 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: isEdit ? T.orangeBg : T.blueBg, border: `1px solid ${isEdit ? T.orangeBorder : T.blueBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {isEdit ? <Pencil size={17} color={T.orange} /> : <Plus size={17} color={T.blue} />}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: T.textPrimary }}>Nouveau traitement</div>
-              <div style={{ fontSize: 11.5, color: T.textMuted }}>{sessionId ? `Session #${sessionId}` : "Sans session"} · Étape {step}/{totalSteps} — {WIZARD_STEPS[step - 1].label}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.textPrimary }}>
+                {isEdit ? "Modifier le traitement" : "Nouveau traitement"}
+              </div>
+              {!isEdit && <div style={{ fontSize: 11.5, color: T.textMuted }}>{sessionId ? `Session #${sessionId}` : "Sans session"} · Étape {step}/{totalSteps} — {WIZARD_STEPS[step - 1].label}</div>}
             </div>
             <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: T.textMuted, padding: 4 }}><X size={18} /></button>
           </div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            {WIZARD_STEPS.map((s, i) => {
-              const done = s.id < step; const active = s.id === step;
-              return (
-                <div key={s.id} style={{ display: "flex", alignItems: "center", flex: i < WIZARD_STEPS.length - 1 ? 1 : "0 0 auto" }}>
-                  <div onClick={() => (s.id <= step || step1Valid) && goToStep(s.id)} title={s.label}
-                    style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: done ? T.green : active ? "#0D1F12" : T.grayBg, border: `1.5px solid ${done ? T.green : active ? "#0D1F12" : T.cardBorder}`, cursor: "pointer", transition: "all 0.18s" }}>
-                    {done ? <Check size={13} color="#fff" /> : <span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : T.textMuted }}>{s.id}</span>}
+          {!isEdit && (
+            <div style={{ display: "flex", alignItems: "center" }}>
+              {WIZARD_STEPS.map((s, i) => {
+                const done = s.id < step; const active = s.id === step;
+                return (
+                  <div key={s.id} style={{ display: "flex", alignItems: "center", flex: i < WIZARD_STEPS.length - 1 ? 1 : "0 0 auto" }}>
+                    <div onClick={() => goToStep(s.id)} title={s.label}
+                      style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: done ? T.green : active ? "#1A5C2A" : T.grayBg, border: `1.5px solid ${done ? T.green : active ? "#1A5C2A" : T.cardBorder}`, cursor: "pointer", transition: "all 0.18s" }}>
+                      {done ? <Check size={13} color="#fff" /> : <span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : T.textMuted }}>{s.id}</span>}
+                    </div>
+                    {i < WIZARD_STEPS.length - 1 && <div style={{ flex: 1, height: 2, background: done ? T.green : T.cardBorder, margin: "0 4px", borderRadius: 2, transition: "background 0.25s" }} />}
                   </div>
-                  {i < WIZARD_STEPS.length - 1 && <div style={{ flex: 1, height: 2, background: done ? T.green : T.cardBorder, margin: "0 4px", borderRadius: 2, transition: "background 0.25s" }} />}
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-          <div style={{ display: "flex", height: "100%", width: `${totalSteps * 100}%`, transform: `translateX(-${(step - 1) * (100 / totalSteps)}%)`, transition: "transform 0.35s cubic-bezier(.4,0,.2,1)" }}>
-            <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
-              <StepIntro title="Identification du traitement" subtitle="Décrivez l'objet de ce traitement de données." />
-              <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>
-                <WizField label="Nom du traitement" value={form.nom} onChange={e => upd("nom", e.target.value)} placeholder="Ex: Identification des agents" />
-                <WizTextArea label="Description" value={form.description} onChange={e => upd("description", e.target.value)} placeholder="Objectif et périmètre du traitement" required rows={3} />
+
+        {isEdit ? (
+          // Mode modification simplifié
+          <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <WizField label="Nom" value={form.nom} onChange={e => upd("nom", e.target.value)} placeholder="Nom du traitement" full />
+              <WizTextArea label="Description" value={form.description} onChange={e => upd("description", e.target.value)} placeholder="Description" required rows={2} />
+              <WizField label="Département" value={form.department} onChange={e => upd("department", e.target.value)} placeholder="Direction des RH..." />
+              <WizField label="Durée conservation (mois)" type="number" value={form.dureeConservation} onChange={e => upd("dureeConservation", e.target.value)} placeholder="24" />
+              <WizField label="Certification sécurité" value={form.certificationSecurite} onChange={e => upd("certificationSecurite", e.target.value)} placeholder="ISO 27001" />
+              <WizTextArea label="Notes" value={form.texte} onChange={e => upd("texte", e.target.value)} placeholder="Informations complémentaires..." rows={2} />
+            </div>
+          </div>
+        ) : (
+          <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+            <div style={{ display: "flex", height: "100%", width: `${totalSteps * 100}%`, transform: `translateX(-${(step - 1) * (100 / totalSteps)}%)`, transition: "transform 0.35s cubic-bezier(.4,0,.2,1)" }}>
+              {/* Étape 1 */}
+              <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
+                <StepIntro title="Identification du traitement" subtitle="Décrivez l'objet de ce traitement de données." />
+                <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>
+                  <WizField label="Nom du traitement" value={form.nom} onChange={e => upd("nom", e.target.value)} placeholder="Ex: Identification des agents" />
+                  <WizTextArea label="Description" value={form.description} onChange={e => upd("description", e.target.value)} placeholder="Objectif et périmètre du traitement" required rows={3} />
+                  <div style={grid2}>
+                    <WizField label="Dénomination du traitement" value={form.denominationTraitement} onChange={e => upd("denominationTraitement", e.target.value)} placeholder="Ex: Gestion des ressources humaines" required />
+                    <WizField label="Type de traitement" value={form.typeTraitement} onChange={e => upd("typeTraitement", e.target.value)} placeholder="Ex: Automatisé, Manuel..." />
+                  </div>
+                  <WizTextArea label="Finalité du traitement" value={form.finaliteTraitement} onChange={e => upd("finaliteTraitement", e.target.value)} placeholder="Ex: Gestion de la paie et des congés" rows={2} />
+                </div>
+              </div>
+              {/* Étape 2 */}
+              <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
+                <StepIntro title="Personnes & données concernées" subtitle="Qui est concerné et quelles données sont collectées ?" />
+                <div style={{ ...grid2, marginTop: 16 }}>
+                  <WizField label="Catégories de personnes concernées" value={form.categoriesPersonnesConcernees} onChange={e => upd("categoriesPersonnesConcernees", e.target.value)} placeholder="Ex: Agents, Prestataires..." />
+                  <WizField label="Nombre de personnes concernées" type="number" value={form.nombrePersonnesConcernees} onChange={e => upd("nombrePersonnesConcernees", e.target.value)} placeholder="Ex: 500" />
+                  <WizField label="Catégories de données" value={form.categoriesDonnees} onChange={e => upd("categoriesDonnees", e.target.value)} placeholder="Ex: Identité, contact, RH..." />
+                  <WizField label="Origine des données" value={form.origineDonnees} onChange={e => upd("origineDonnees", e.target.value)} placeholder="Ex: Collecte directe, formulaire..." />
+                </div>
+              </div>
+              {/* Étape 3 */}
+              <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
+                <StepIntro title="Responsable du traitement" subtitle="Qui est responsable et quel est le contexte de la demande ?" />
+                <div style={{ ...grid2, marginTop: 16 }}>
+                  <WizField label="Nom et prénom du responsable" value={form.nomPrenomResponsable} onChange={e => upd("nomPrenomResponsable", e.target.value)} placeholder="Ex: Marc Nacanabo" />
+                  <WizField label="Fonction du responsable" value={form.fonctionResponsable} onChange={e => upd("fonctionResponsable", e.target.value)} placeholder="Ex: Chef de service RH" />
+                  <WizField label="Contact (confidentialité)" value={form.contactConfidentialite} onChange={e => upd("contactConfidentialite", e.target.value)} placeholder="Email ou téléphone" />
+                  <WizSelect label="Nature de la demande" value={form.natureDemande} onChange={e => upd("natureDemande", e.target.value)} options={[
+                    { value: "PREMIERE", label: "Première déclaration" },
+                    { value: "MODIFICATION", label: "Modification" },
+                    { value: "SUPPRESSION", label: "Suppression" },
+                  ]} />
+                  <WizField label="Département / Service" value={form.department} onChange={e => upd("department", e.target.value)} placeholder="Ex: Direction des Ressources Humaines" full />
+                </div>
+              </div>
+              {/* Étape 4 */}
+              <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
+                <StepIntro title="Conservation & mise en œuvre" subtitle="Durée de conservation et modalités pratiques." />
+                <div style={{ ...grid2, marginTop: 16 }}>
+                  <WizField label="Durée conservation (mois)" type="number" value={form.dureeConservation} onChange={e => upd("dureeConservation", e.target.value)} placeholder="Ex: 24" />
+                  <WizField label="Durée conservation (déclaration)" value={form.dureeConservationDeclaration} onChange={e => upd("dureeConservationDeclaration", e.target.value)} placeholder="Ex: 24 mois" />
+                  <WizField label="Lieu de stockage" value={form.lieuStockage} onChange={e => upd("lieuStockage", e.target.value)} placeholder="Ex: Serveur SOFITEX Bobo-Dioulasso" />
+                  <WizField label="Date de mise en œuvre" type="date" value={form.dateMiseEnOeuvre} onChange={e => upd("dateMiseEnOeuvre", e.target.value)} />
+                  <WizField label="Secteur" value={form.secteur} onChange={e => upd("secteur", e.target.value)} placeholder="Ex: Privé, Public, Parapublic" full />
+                </div>
+              </div>
+              {/* Étape 5 */}
+              <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
+                <StepIntro title="Sécurité & transferts" subtitle="Mesures de sécurité et flux de données vers des tiers." />
+                <div style={{ ...grid2, marginTop: 16, marginBottom: 14 }}>
+                  <WizToggle label="Transfert à l'étranger" hint="Données transférées hors du pays" checked={form.transfertEtranger} onChange={v => upd("transfertEtranger", v)} />
+                  <WizToggle label="Recours à un sous-traitant" hint="Traitement délégué à un tiers" checked={form.sousTraitance} onChange={v => upd("sousTraitance", v)} />
+                  <WizToggle label="Communication à des tiers" hint="Partage avec d'autres organismes" checked={form.communicationTiers} onChange={v => upd("communicationTiers", v)} />
+                  <WizToggle label="Destinataire conforme CIL" hint="Conformité du destinataire validée" checked={form.destinataireConformeCil} onChange={v => upd("destinataireConformeCil", v)} />
+                  <WizToggle label="Sensibilisation du personnel" hint="Mesures de sensibilisation en place" checked={form.mesuresSensibilisation} onChange={v => upd("mesuresSensibilisation", v)} />
+                  <WizToggle label="Politique d'accès aux bâtiments" hint="Accès physique réglementé" checked={form.politiqueAccesBatiments} onChange={v => upd("politiqueAccesBatiments", v)} />
+                </div>
                 <div style={grid2}>
-                  <WizField label="Dénomination du traitement" value={form.denominationTraitement} onChange={e => upd("denominationTraitement", e.target.value)} placeholder="Ex: Gestion des ressources humaines" required />
-                  <WizField label="Type de traitement" value={form.typeTraitement} onChange={e => upd("typeTraitement", e.target.value)} placeholder="Ex: Automatisé, Manuel..." />
+                  <WizField label="Certification sécurité" value={form.certificationSecurite} onChange={e => upd("certificationSecurite", e.target.value)} placeholder="Ex: ISO 27001" />
+                  <WizField label="Catégories de personnes ayant accès" value={form.categoriesPersonnesAcces} onChange={e => upd("categoriesPersonnesAcces", e.target.value)} placeholder="Ex: Admins RH, IT" />
+                  <WizTextArea label="Mesures de sécurité" value={form.mesuresSecurite} onChange={e => upd("mesuresSecurite", e.target.value)} placeholder="Ex: Chiffrement, contrôle d'accès, sauvegardes..." rows={2} />
                 </div>
-                <WizTextArea label="Finalité du traitement" value={form.finaliteTraitement} onChange={e => upd("finaliteTraitement", e.target.value)} placeholder="Ex: Gestion de la paie et des congés" rows={2} />
               </div>
-            </div>
-            <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
-              <StepIntro title="Personnes & données concernées" subtitle="Qui est concerné et quelles données sont collectées ?" />
-              <div style={{ ...grid2, marginTop: 16 }}>
-                <WizField label="Catégories de personnes concernées" value={form.categoriesPersonnesConcernees} onChange={e => upd("categoriesPersonnesConcernees", e.target.value)} placeholder="Ex: Agents, Prestataires..." />
-                <WizField label="Nombre de personnes concernées" type="number" value={form.nombrePersonnesConcernees} onChange={e => upd("nombrePersonnesConcernees", e.target.value)} placeholder="Ex: 500" />
-                <WizField label="Catégories de données" value={form.categoriesDonnees} onChange={e => upd("categoriesDonnees", e.target.value)} placeholder="Ex: Identité, contact, RH..." />
-                <WizField label="Origine des données" value={form.origineDonnees} onChange={e => upd("origineDonnees", e.target.value)} placeholder="Ex: Collecte directe, formulaire..." />
+              {/* Étape 6 */}
+              <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
+                <StepIntro title="Entreprise responsable" subtitle="Informations légales — optionnel." />
+                <div style={{ ...grid3, marginTop: 16 }}>
+                  <WizField label="Nom / Raison sociale" value={form.nomRaisonSociale} onChange={e => upd("nomRaisonSociale", e.target.value)} placeholder="SOFITEX" />
+                  <WizField label="RCCM" value={form.rccm} onChange={e => upd("rccm", e.target.value)} placeholder="Ex: BF-BOB-..." />
+                  <WizField label="Secteur d'activité" value={form.secteurActivite} onChange={e => upd("secteurActivite", e.target.value)} placeholder="Ex: Textile" />
+                  <WizField label="Adresse" value={form.adresse} onChange={e => upd("adresse", e.target.value)} placeholder="Adresse du siège" />
+                  <WizField label="Boîte postale" value={form.boitePostale} onChange={e => upd("boitePostale", e.target.value)} placeholder="Ex: 01 BP 100" />
+                  <WizField label="Ville" value={form.ville} onChange={e => upd("ville", e.target.value)} placeholder="Ex: Bobo-Dioulasso" />
+                  <WizField label="Téléphone" value={form.telephone} onChange={e => upd("telephone", e.target.value)} placeholder="+226 70 00 00 00" />
+                  <WizField label="Adresse e-mail" type="email" value={form.adresseEmail} onChange={e => upd("adresseEmail", e.target.value)} placeholder="contact@sofitex.bf" />
+                  <WizField label="Activité principale" value={form.activitePrincipale} onChange={e => upd("activitePrincipale", e.target.value)} placeholder="Ex: Égrenage du coton" />
+                </div>
               </div>
-            </div>
-            <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
-              <StepIntro title="Responsable du traitement" subtitle="Qui est responsable et quel est le contexte de la demande ?" />
-              <div style={{ ...grid2, marginTop: 16 }}>
-                <WizField label="Nom et prénom du responsable" value={form.nomPrenomResponsable} onChange={e => upd("nomPrenomResponsable", e.target.value)} placeholder="Ex: Marc Nacanabo" />
-                <WizField label="Fonction du responsable" value={form.fonctionResponsable} onChange={e => upd("fonctionResponsable", e.target.value)} placeholder="Ex: Chef de service RH" />
-                <WizField label="Contact (confidentialité)" value={form.contactConfidentialite} onChange={e => upd("contactConfidentialite", e.target.value)} placeholder="Email ou téléphone" />
-                <WizSelect label="Nature de la demande" value={form.natureDemande} onChange={e => upd("natureDemande", e.target.value)} options={[
-                  { value: "PREMIERE", label: "Première déclaration" },
-                  { value: "MODIFICATION", label: "Modification" },
-                  { value: "SUPPRESSION", label: "Suppression" },
-                ]} />
-                <WizField label="Département / Service" value={form.department} onChange={e => upd("department", e.target.value)} placeholder="Ex: Direction des Ressources Humaines" full />
-              </div>
-            </div>
-            <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
-              <StepIntro title="Conservation & mise en œuvre" subtitle="Durée de conservation et modalités pratiques." />
-              <div style={{ ...grid2, marginTop: 16 }}>
-                <WizField label="Durée conservation (mois)" type="number" value={form.dureeConservation} onChange={e => upd("dureeConservation", e.target.value)} placeholder="Ex: 24" />
-                <WizField label="Durée conservation (déclaration)" value={form.dureeConservationDeclaration} onChange={e => upd("dureeConservationDeclaration", e.target.value)} placeholder="Ex: 24 mois" />
-                <WizField label="Lieu de stockage" value={form.lieuStockage} onChange={e => upd("lieuStockage", e.target.value)} placeholder="Ex: Serveur SOFITEX Bobo-Dioulasso" />
-                <WizField label="Date de mise en œuvre" type="date" value={form.dateMiseEnOeuvre} onChange={e => upd("dateMiseEnOeuvre", e.target.value)} />
-                <WizField label="Secteur" value={form.secteur} onChange={e => upd("secteur", e.target.value)} placeholder="Ex: Privé, Public, Parapublic" full />
-              </div>
-            </div>
-            <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
-              <StepIntro title="Sécurité & transferts" subtitle="Mesures de sécurité et flux de données vers des tiers." />
-              <div style={{ ...grid2, marginTop: 16, marginBottom: 14 }}>
-                <WizToggle label="Transfert à l'étranger" hint="Données transférées hors du pays" checked={form.transfertEtranger} onChange={v => upd("transfertEtranger", v)} />
-                <WizToggle label="Recours à un sous-traitant" hint="Traitement délégué à un tiers" checked={form.sousTraitance} onChange={v => upd("sousTraitance", v)} />
-                <WizToggle label="Communication à des tiers" hint="Partage avec d'autres organismes" checked={form.communicationTiers} onChange={v => upd("communicationTiers", v)} />
-                <WizToggle label="Destinataire conforme CIL" hint="Conformité du destinataire validée" checked={form.destinataireConformeCil} onChange={v => upd("destinataireConformeCil", v)} />
-                <WizToggle label="Sensibilisation du personnel" hint="Mesures de sensibilisation en place" checked={form.mesuresSensibilisation} onChange={v => upd("mesuresSensibilisation", v)} />
-                <WizToggle label="Politique d'accès aux bâtiments" hint="Accès physique réglementé" checked={form.politiqueAccesBatiments} onChange={v => upd("politiqueAccesBatiments", v)} />
-              </div>
-              <div style={grid2}>
-                <WizField label="Certification sécurité" value={form.certificationSecurite} onChange={e => upd("certificationSecurite", e.target.value)} placeholder="Ex: ISO 27001" />
-                <WizField label="Catégories de personnes ayant accès" value={form.categoriesPersonnesAcces} onChange={e => upd("categoriesPersonnesAcces", e.target.value)} placeholder="Ex: Admins RH, IT" />
-                <WizTextArea label="Mesures de sécurité" value={form.mesuresSecurite} onChange={e => upd("mesuresSecurite", e.target.value)} placeholder="Ex: Chiffrement, contrôle d'accès, sauvegardes..." rows={2} />
-              </div>
-            </div>
-            <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
-              <StepIntro title="Entreprise responsable" subtitle="Informations légales — optionnel." />
-              <div style={{ ...grid3, marginTop: 16 }}>
-                <WizField label="Nom / Raison sociale" value={form.nomRaisonSociale} onChange={e => upd("nomRaisonSociale", e.target.value)} placeholder="SOFITEX" />
-                <WizField label="RCCM" value={form.rccm} onChange={e => upd("rccm", e.target.value)} placeholder="Ex: BF-BOB-..." />
-                <WizField label="Secteur d'activité" value={form.secteurActivite} onChange={e => upd("secteurActivite", e.target.value)} placeholder="Ex: Textile" />
-                <WizField label="Adresse" value={form.adresse} onChange={e => upd("adresse", e.target.value)} placeholder="Adresse du siège" />
-                <WizField label="Boîte postale" value={form.boitePostale} onChange={e => upd("boitePostale", e.target.value)} placeholder="Ex: 01 BP 100" />
-                <WizField label="Ville" value={form.ville} onChange={e => upd("ville", e.target.value)} placeholder="Ex: Bobo-Dioulasso" />
-                <WizField label="Téléphone" value={form.telephone} onChange={e => upd("telephone", e.target.value)} placeholder="+226 70 00 00 00" />
-                <WizField label="Adresse e-mail" type="email" value={form.adresseEmail} onChange={e => upd("adresseEmail", e.target.value)} placeholder="contact@sofitex.bf" />
-                <WizField label="Activité principale" value={form.activitePrincipale} onChange={e => upd("activitePrincipale", e.target.value)} placeholder="Ex: Égrenage du coton" />
-              </div>
-            </div>
-            <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
-              <StepIntro title="Récapitulatif" subtitle="Vérifiez les informations avant de créer le traitement." />
-              <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <Card style={{ padding: 14 }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Identification</div>
-                  <RecapRow label="Dénomination" value={form.denominationTraitement} />
-                  <RecapRow label="Finalité" value={form.finaliteTraitement} />
-                  <RecapRow label="Type" value={form.typeTraitement} />
-                  <RecapRow label="Personnes concernées" value={form.categoriesPersonnesConcernees} />
-                </Card>
-                <Card style={{ padding: 14 }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Responsable & conservation</div>
-                  <RecapRow label="Responsable" value={form.nomPrenomResponsable} />
-                  <RecapRow label="Conservation" value={form.dureeConservation ? `${form.dureeConservation} mois` : ""} />
-                  <RecapRow label="Lieu de stockage" value={form.lieuStockage} />
-                  <RecapRow label="Nature de la demande" value={form.natureDemande} />
-                </Card>
-              </div>
-              <div style={{ marginTop: 14 }}>
-                <WizTextArea label="Notes complémentaires" value={form.texte} onChange={e => upd("texte", e.target.value)} placeholder="Informations additionnelles (optionnel)" rows={3} />
+              {/* Étape 7 */}
+              <div style={{ width: `${100 / totalSteps}%`, padding: "20px 24px", overflowY: "auto" }}>
+                <StepIntro title="Récapitulatif" subtitle="Vérifiez les informations avant de créer le traitement." />
+                <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <Card style={{ padding: 14 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Identification</div>
+                    <RecapRow label="Dénomination" value={form.denominationTraitement} />
+                    <RecapRow label="Finalité" value={form.finaliteTraitement} />
+                    <RecapRow label="Type" value={form.typeTraitement} />
+                    <RecapRow label="Personnes concernées" value={form.categoriesPersonnesConcernees} />
+                  </Card>
+                  <Card style={{ padding: 14 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Responsable & conservation</div>
+                    <RecapRow label="Responsable" value={form.nomPrenomResponsable} />
+                    <RecapRow label="Conservation" value={form.dureeConservation ? `${form.dureeConservation} mois` : ""} />
+                    <RecapRow label="Lieu de stockage" value={form.lieuStockage} />
+                    <RecapRow label="Nature de la demande" value={form.natureDemande} />
+                  </Card>
+                </div>
+                <div style={{ marginTop: 14 }}>
+                  <WizTextArea label="Notes complémentaires" value={form.texte} onChange={e => upd("texte", e.target.value)} placeholder="Informations additionnelles (optionnel)" rows={3} />
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
+
         <div style={{ padding: "14px 24px 18px", borderTop: `1px solid ${T.cardBorder}`, flexShrink: 0 }}>
           {error && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: T.redBg, border: `1px solid ${T.redBorder}`, borderRadius: 8, fontSize: 12, color: T.red, marginBottom: 12 }}>
@@ -727,13 +972,13 @@ const ModalCreerTraitement = ({ sessionId, userId, onClose, onSave }) => {
             </div>
           )}
           <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <Btn onClick={step === 1 ? onClose : goBack}>
-              {step === 1 ? "Annuler" : <><ChevronLeft size={13} /> Précédent</>}
+            <Btn onClick={step === 1 || isEdit ? onClose : goBack}>
+              {step === 1 || isEdit ? "Annuler" : <><ChevronLeft size={13} /> Précédent</>}
             </Btn>
-            {step < totalSteps
+            {!isEdit && step < totalSteps
               ? <Btn variant="primary" onClick={goNext}>Suivant <ChevronRight size={13} /></Btn>
               : <Btn variant="primary" onClick={handleSave} disabled={loading}>
-                  {loading ? <><Spinner /> Création...</> : <><Check size={13} /> Créer le traitement</>}
+                  {loading ? <><Spinner /> Sauvegarde...</> : <><Check size={13} /> {isEdit ? "Enregistrer" : "Créer le traitement"}</>}
                 </Btn>
             }
           </div>
@@ -744,14 +989,15 @@ const ModalCreerTraitement = ({ sessionId, userId, onClose, onSave }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : TRAITEMENTS (d'une session)
+//  SECTION : TRAITEMENTS (avec bouton modifier)
 // ═══════════════════════════════════════════════════════
 const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement, userId }) => {
-  const [showModal,   setShowModal]   = useState(false);
-  const [traitements, setTraitements] = useState([]);
-  const [session,     setSession]     = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState("");
+  const [showModal,       setShowModal]       = useState(false);
+  const [traitementEdit,  setTraitementEdit]  = useState(null);
+  const [traitements,     setTraitements]     = useState([]);
+  const [session,         setSession]         = useState(null);
+  const [loading,         setLoading]         = useState(true);
+  const [error,           setError]           = useState("");
 
   useEffect(() => {
     if (!selectedSession) return;
@@ -768,7 +1014,14 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
     load();
   }, [selectedSession]);
 
-  const addTraitement = (t) => setTraitements(prev => [t, ...prev]);
+  const handleSave = (t) => {
+    if (traitementEdit) {
+      setTraitements(prev => prev.map(x => x.idTraitement === t.idTraitement ? t : x));
+    } else {
+      setTraitements(prev => [t, ...prev]);
+    }
+    setTraitementEdit(null);
+  };
 
   const handleEnvoyerDpo = async (traitementId) => {
     try {
@@ -789,7 +1042,15 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
 
   return (
     <div className="slide-in">
-      {showModal && <ModalCreerTraitement sessionId={selectedSession} userId={userId} onClose={() => setShowModal(false)} onSave={addTraitement} />}
+      {(showModal || traitementEdit) && (
+        <ModalCreerTraitement
+          sessionId={selectedSession}
+          userId={userId}
+          onClose={() => { setShowModal(false); setTraitementEdit(null); }}
+          onSave={handleSave}
+          traitementExistant={traitementEdit}
+        />
+      )}
       <div style={{ marginBottom: 20 }}>
         <button onClick={() => setSection("sessions")} style={{ background: "none", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", gap: 4, marginBottom: 8 }}>
           <ChevronLeft size={13} /> Retour aux sessions
@@ -813,7 +1074,7 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
         </div>
       </div>
 
-      {loading && <Card style={{ padding: 40, textAlign: "center" }}><Spinner dark /><p style={{ color: T.textMuted, fontSize: 13, marginTop: 12 }}>Chargement...</p></Card>}
+      {loading && <Card style={{ padding: 40, textAlign: "center" }}><Spinner dark /></Card>}
       {!loading && error && <ErrorBanner message={error} />}
       {!loading && !error && traitements.length === 0 && (
         <EmptyState icon={Cpu} message="Aucun traitement pour cette session."
@@ -826,42 +1087,55 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
       )}
       {!loading && !error && traitements.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 14 }}>
-          {traitements.map(t => (
-            <Card key={t.idTraitement} style={{ padding: 20 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 38, height: 38, borderRadius: 10, background: T.blueBg, border: `1px solid ${T.blueBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Cpu size={18} color={T.blue} strokeWidth={1.5} />
+          {traitements.map(t => {
+            const peutModifier = !t.envoyeAuDpo;
+            return (
+              <Card key={t.idTraitement} style={{ padding: 20 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 10, background: T.blueBg, border: `1px solid ${T.blueBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Cpu size={18} color={T.blue} strokeWidth={1.5} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.textPrimary }}>{t.nom || t.description || "—"}</div>
+                      <div style={{ fontSize: 11, color: T.textMuted }}>#{t.idTraitement} · {t.department || "Aucun dpt"}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: T.textPrimary }}>{t.nom || t.description || "—"}</div>
-                    <div style={{ fontSize: 11, color: T.textMuted }}>#{t.idTraitement} · {t.department || "Aucun dpt"}</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {t.envoyeAuDpo && (
+                      <span style={{ fontSize: 10, color: T.green, background: T.greenBg, border: `1px solid ${T.greenBorder}`, padding: "2px 7px", borderRadius: 10, fontWeight: 600 }}>
+                        ✓ DPO
+                      </span>
+                    )}
+                    {peutModifier && (
+                      <button onClick={() => setTraitementEdit(t)}
+                        title="Modifier ce traitement"
+                        style={{ background: T.orangeBg, border: `1px solid ${T.orangeBorder}`, borderRadius: 7, padding: "4px 8px", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.orange, fontWeight: 600 }}>
+                        <Pencil size={11} /> Modifier
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <Badge type={t.statut} />
-                  {t.envoyeAuDpo && <span style={{ fontSize: 10, color: T.green, background: T.greenBg, border: `1px solid ${T.greenBorder}`, padding: "2px 7px", borderRadius: 10, fontWeight: 600 }}>✓ DPO</span>}
+                <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                  <div style={{ flex: 1, padding: "10px 12px", background: T.grayBg, borderRadius: 8, textAlign: "center" }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: T.textPrimary, fontFamily: "'DM Mono', monospace" }}>{t.nombreDonnee ?? 0}</div>
+                    <div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Entrées</div>
+                  </div>
+                  <div style={{ flex: 1, padding: "10px 12px", background: T.grayBg, borderRadius: 8, textAlign: "center" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.textSecondary }}>{t.dureeConservation ? `${t.dureeConservation} mois` : "—"}</div>
+                    <div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Conservation</div>
+                  </div>
                 </div>
-              </div>
-              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-                <div style={{ flex: 1, padding: "10px 12px", background: T.grayBg, borderRadius: 8, textAlign: "center" }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: T.textPrimary, fontFamily: "'DM Mono', monospace" }}>{t.nombreDonnee ?? 0}</div>
-                  <div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Entrées</div>
+                <div style={{ display: "flex", gap: 8, borderTop: `1px solid ${T.cardBorder}`, paddingTop: 12, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace", alignSelf: "center" }}>{t.dateCreation?.split("T")[0] ?? ""}</span>
+                  <div style={{ flex: 1 }} />
+                  {!t.envoyeAuDpo && <Btn onClick={() => handleEnvoyerDpo(t.idTraitement)} style={{ fontSize: 11, padding: "5px 12px" }}><ArrowUpRight size={12} /> Envoyer DPO</Btn>}
+                  <Btn onClick={() => { setSelectedTraitement(t.idTraitement); setSection("donnees"); }} style={{ fontSize: 11, padding: "5px 12px" }}><Database size={12} /> Données</Btn>
+                  <Btn variant="success" onClick={() => { setSelectedTraitement(t.idTraitement); setSection("donnees"); }} style={{ fontSize: 11, padding: "5px 12px" }}><Plus size={12} /> Saisir</Btn>
                 </div>
-                <div style={{ flex: 1, padding: "10px 12px", background: T.grayBg, borderRadius: 8, textAlign: "center" }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: T.textSecondary }}>{t.dureeConservation ? `${t.dureeConservation} mois` : "—"}</div>
-                  <div style={{ fontSize: 10, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Conservation</div>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8, borderTop: `1px solid ${T.cardBorder}`, paddingTop: 12, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace", alignSelf: "center" }}>{t.dateCreation?.split("T")[0] ?? ""}</span>
-                <div style={{ flex: 1 }} />
-                {!t.envoyeAuDpo && <Btn onClick={() => handleEnvoyerDpo(t.idTraitement)} style={{ fontSize: 11, padding: "5px 12px" }}><ArrowUpRight size={12} /> Envoyer DPO</Btn>}
-                <Btn onClick={() => { setSelectedTraitement(t.idTraitement); setSection("donnees"); }} style={{ fontSize: 11, padding: "5px 12px" }}><Database size={12} /> Données</Btn>
-                <Btn variant="primary" onClick={() => { setSelectedTraitement(t.idTraitement); setSection("donnees"); }} style={{ fontSize: 11, padding: "5px 12px" }}><Plus size={12} /> Saisir</Btn>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
@@ -869,7 +1143,7 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
 };
 
 // ═══════════════════════════════════════════════════════
-//  PERSONNE PICKER (saisie manuelle)
+//  PERSONNE PICKER
 // ═══════════════════════════════════════════════════════
 const PersonnePicker = ({ selectedPersonne, onSelect, onClear }) => {
   const [query, setQuery] = useState("");
@@ -992,7 +1266,7 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
   const [entrepot,   setEntrepot]   = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [search,     setSearch]     = useState("");
-  const [selection,  setSelection]  = useState(new Set()); // ids sélectionnés
+  const [selection,  setSelection]  = useState(new Set());
   const [attaching,  setAttaching]  = useState(false);
 
   const load = useCallback(async () => {
@@ -1034,7 +1308,6 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
         { method: "POST", body: JSON.stringify([...selection]) }
       );
       result.forEach(d => onDonneeAjoutee(d));
-      // Recharger l'entrepôt (les données attachées disparaissent)
       await load();
       setSelection(new Set());
       toast.success(`${result.length} donnée(s) ajoutée(s) au traitement !`);
@@ -1045,16 +1318,15 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
 
   return (
     <Card style={{ overflow: "hidden" }}>
-      {/* Barre d'outils */}
       <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.cardBorder}`, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Archive size={15} color={T.orange} />
           <span style={{ fontSize: 13, fontWeight: 700, color: T.textPrimary }}>Entrepôt de données</span>
-          <span style={{ fontSize: 11, color: T.textMuted, background: T.orangeBg, border: `1px solid ${T.orangeBorder}`, padding: "2px 8px", borderRadius: 10, fontWeight: 600, color: T.orange }}>{entrepot.length} entrée(s)</span>
+          <span style={{ fontSize: 11, background: T.orangeBg, border: `1px solid ${T.orangeBorder}`, padding: "2px 8px", borderRadius: 10, fontWeight: 600, color: T.orange }}>{entrepot.length} entrée(s)</span>
         </div>
         <div style={{ flex: 1, position: "relative", maxWidth: 280 }}>
           <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textMuted }} />
-          <input type="text" placeholder="Filtrer par nom, valeur, type..." value={search} onChange={e => setSearch(e.target.value)}
+          <input type="text" placeholder="Filtrer…" value={search} onChange={e => setSearch(e.target.value)}
             style={{ width: "100%", paddingLeft: 30, paddingRight: 10, paddingTop: 7, paddingBottom: 7, borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 12, color: T.textPrimary, background: T.grayBg, outline: "none", fontFamily: "inherit" }} />
         </div>
         <Btn onClick={load} style={{ fontSize: 12, padding: "7px 10px" }}><RefreshCw size={12} /></Btn>
@@ -1064,20 +1336,16 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
           </Btn>
         )}
       </div>
-
       {loading && <div style={{ padding: 32, textAlign: "center" }}><Spinner dark /></div>}
-
       {!loading && entrepot.length === 0 && (
         <div style={{ padding: 40, textAlign: "center" }}>
           <PackageOpen size={36} color={T.textMuted} style={{ margin: "0 auto 12px", display: "block", opacity: 0.4 }} />
           <p style={{ color: T.textMuted, fontSize: 13, marginBottom: 8 }}>L'entrepôt est vide.</p>
-          <p style={{ color: T.textMuted, fontSize: 12 }}>Importez un fichier Excel dans la section <strong>Import fichier</strong> pour alimenter l'entrepôt.</p>
+          <p style={{ color: T.textMuted, fontSize: 12 }}>Importez un fichier Excel dans la section <strong>Import fichier</strong>.</p>
         </div>
       )}
-
       {!loading && entrepot.length > 0 && (
         <>
-          {/* En-tête tableau */}
           <div style={{ display: "grid", gridTemplateColumns: "36px 1fr 1fr 1fr 80px", gap: 0, padding: "8px 16px", background: T.grayBg, borderBottom: `1px solid ${T.cardBorder}` }}>
             <div style={{ display: "flex", alignItems: "center" }}>
               <button onClick={toggleAll} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", color: T.textMuted }}>
@@ -1088,7 +1356,6 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
               <div key={h} style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</div>
             ))}
           </div>
-          {/* Lignes */}
           <div style={{ maxHeight: 340, overflowY: "auto" }}>
             {filtered.map((d, i) => {
               const selected = selection.has(d.idDonnee);
@@ -1106,9 +1373,8 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
                 </div>
               );
             })}
-            {filtered.length === 0 && <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun résultat pour « {search} »</div>}
+            {filtered.length === 0 && <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun résultat</div>}
           </div>
-          {/* Footer sélection */}
           {selection.size > 0 && (
             <div style={{ padding: "10px 16px", background: T.greenBg, borderTop: `1px solid ${T.greenBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 12, color: T.green, fontWeight: 600 }}>{selection.size} donnée(s) sélectionnée(s)</span>
@@ -1155,6 +1421,9 @@ const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee }) => {
 
   const ajouterAuPanier = () => {
     if (!valeur.trim() || !typeDonneeId) return;
+    // Vérification doublon local dans le panier
+    const existeDeja = panier.some(l => l.typeDonneeId === typeDonneeId && l.valeur.toLowerCase() === valeur.trim().toLowerCase());
+    if (existeDeja) { toast.error("Cette donnée est déjà dans le panier."); return; }
     setPanier(prev => [...prev, { tempId: Date.now() + Math.random(), typeDonneeId, typeDonneeNom: typeSelectionne?.nom || "—", sensible: typeSelectionne?.sensible || false, valeur: valeur.trim() }]);
     setValeur("");
   };
@@ -1173,8 +1442,8 @@ const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee }) => {
       } catch (e) { erreurs.push(`${ligne.typeDonneeNom} : ${e.message}`); }
     }
     setEnvoi(false);
-    if (succes > 0) { toast.success(`${succes} donnée(s) enregistrée(s) !`); setPanier(erreurs.length ? panier.filter((_, i) => i >= succes) : []); }
-    if (erreurs.length > 0) toast.error(`${erreurs.length} ligne(s) en échec`);
+    if (succes > 0) { toast.success(`${succes} donnée(s) enregistrée(s) et copiée(s) dans l'entrepôt !`); setPanier(erreurs.length ? panier.filter((_, i) => i >= succes) : []); }
+    if (erreurs.length > 0) toast.error(`${erreurs.length} ligne(s) en échec : ${erreurs[0]}`);
   };
 
   return (
@@ -1185,7 +1454,7 @@ const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee }) => {
         </div>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary }}>Saisie manuelle d'une donnée</div>
-          <div style={{ fontSize: 12, color: T.textMuted }}>Traitement #{selectedTraitement}</div>
+          <div style={{ fontSize: 12, color: T.textMuted }}>Traitement #{selectedTraitement} — copie automatique dans l'entrepôt</div>
         </div>
       </div>
       <div style={{ marginBottom: 18 }}>
@@ -1230,7 +1499,133 @@ const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : DONNÉES + SAISIE + ENTREPÔT
+//  IMPORT EXCEL DIRECT DANS TRAITEMENT — avec info CNIB
+// ═══════════════════════════════════════════════════════
+const ImportDirectTraitement = ({ selectedTraitement, onDonneesAjoutees }) => {
+  const [file,    setFile]    = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState("");
+  const [dragging,setDragging]= useState(false);
+  const fileRef = useRef();
+
+  const handleFile = (f) => {
+    if (f && f.name.toLowerCase().endsWith(".xlsx")) setFile(f);
+    else toast.error("Fichier .xlsx requis");
+  };
+
+  const handleImport = async () => {
+    if (!file || !selectedTraitement) return;
+    setLoading(true); setError("");
+    try {
+      const formData = new FormData();
+      formData.append("fichier", file);
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API}/api/donnees/import-excel?traitementId=${selectedTraitement}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || `Erreur ${res.status}`); }
+      const data = await res.json();
+      setResult(data);
+      toast.success(`${data.lignesImportees} donnée(s) importée(s) dans le traitement !`);
+    } catch (e) { setError(e.message || "Erreur lors de l'import"); }
+    finally { setLoading(false); }
+  };
+
+  if (result) return (
+    <Card style={{ padding: 32, textAlign: "center", maxWidth: 560 }}>
+      <CheckCircle2 size={48} color={T.green} style={{ display: "block", margin: "0 auto 14px" }} />
+      <div style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary, marginBottom: 8 }}>Import terminé !</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, maxWidth: 360, margin: "0 auto 24px" }}>
+        {[
+          { label: "Importées", value: result.lignesImportees, color: T.green, bg: T.greenBg },
+          { label: "Ignorées",  value: result.lignesEchouees ?? result.lignesEnErreur ?? (result.totalLignes - result.lignesImportees), color: T.red, bg: T.redBg },
+          { label: "Total",     value: result.totalLignes, color: T.blue, bg: T.blueBg },
+        ].map((s, i) => (
+          <div key={i} style={{ padding: 14, background: s.bg, borderRadius: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.value}</div>
+            <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+        <Btn onClick={() => { setResult(null); setFile(null); }}><RefreshCw size={13} /> Nouvel import</Btn>
+        <Btn variant="success" onClick={() => onDonneesAjoutees()}><Check size={13} /> Voir la liste</Btn>
+      </div>
+    </Card>
+  );
+
+  return (
+    <Card style={{ padding: 28, maxWidth: 580 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: T.blueBg, border: `1px solid ${T.blueBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Upload size={18} color={T.blue} />
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary }}>Import Excel direct dans le traitement</div>
+          <div style={{ fontSize: 12, color: T.textMuted }}>Données rattachées directement au traitement #{selectedTraitement}</div>
+        </div>
+      </div>
+
+      {/* Info formats — maintenant avec CNIB explicite */}
+      <div style={{ padding: "12px 14px", background: T.blueBg, border: `1px solid ${T.blueBorder}`, borderRadius: 9, marginBottom: 18, fontSize: 12, color: T.textSecondary, lineHeight: 1.7 }}>
+        <strong style={{ color: T.blue }}>3 formats acceptés :</strong><br />
+        <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ padding: "6px 10px", background: T.cardBg, borderRadius: 7, border: `1px solid ${T.cardBorder}` }}>
+            <span style={{ fontWeight: 600, color: T.blue }}>Format A (SOFITEX standard) :</span><br />
+            <code style={{ fontSize: 11 }}>NOM | PRENOM | EMAIL | TELEPHONE | DATE_NAISSANCE | NUMERO_CNIB | PROFESSION</code>
+          </div>
+          <div style={{ padding: "6px 10px", background: T.cardBg, borderRadius: 7, border: `1px solid ${T.cardBorder}` }}>
+            <span style={{ fontWeight: 600, color: T.teal }}>Format B (type explicite) :</span><br />
+            <code style={{ fontSize: 11 }}>nom | prenom | email | telephone | type_donnee | valeur</code>
+          </div>
+          <div style={{ padding: "6px 10px", background: T.goldLight, borderRadius: 7, border: `1px solid ${T.goldBorder}` }}>
+            <span style={{ fontWeight: 600, color: T.gold }}>💡 Astuce CNIB :</span> Le numéro CNIB (carte nationale d'identité burkinabè) est automatiquement reconnu via la colonne <code>NUMERO_CNIB</code> du Format A, ou en saisissant <code>Numéro CNIB</code> comme type_donnee dans le Format B.
+          </div>
+        </div>
+        <div style={{ marginTop: 8, fontSize: 11, color: T.textMuted }}>La ligne 1 est l'en-tête (ignorée). Le format est détecté automatiquement. Les doublons sont ignorés.</div>
+      </div>
+
+      {!file ? (
+        <div
+          onDragOver={e => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
+          onClick={() => fileRef.current.click()}
+          style={{ border: `2px dashed ${dragging ? T.blue : T.cardBorder}`, borderRadius: 12, padding: "40px 20px", textAlign: "center", cursor: "pointer", background: dragging ? T.blueBg : "transparent", transition: "all 0.2s" }}>
+          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+          <FileSpreadsheet size={44} color={dragging ? T.blue : T.textMuted} style={{ display: "block", margin: "0 auto 12px", opacity: dragging ? 0.9 : 0.4 }} strokeWidth={1} />
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>Glisser un fichier .xlsx ici</div>
+          <div style={{ fontSize: 12, color: T.textMuted }}>ou cliquer pour parcourir</div>
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: T.grayBg, borderRadius: 9, marginBottom: 14 }}>
+            <FileSpreadsheet size={22} color={T.green} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary }}>{file.name}</div>
+              <div style={{ fontSize: 11, color: T.textMuted }}>{(file.size / 1024).toFixed(1)} Ko</div>
+            </div>
+            <Btn onClick={() => { setFile(null); setError(""); }} style={{ fontSize: 11, padding: "5px 10px" }}>Changer</Btn>
+          </div>
+          {error && (
+            <div style={{ marginBottom: 12, padding: "10px 12px", background: T.redBg, border: `1px solid ${T.redBorder}`, borderRadius: 8, fontSize: 12, color: T.red, display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} /> {error}
+            </div>
+          )}
+          <Btn variant="primary" onClick={handleImport} disabled={loading} style={{ width: "100%", justifyContent: "center" }}>
+            {loading ? <><Spinner /> Import en cours...</> : <><Upload size={13} /> Importer dans le traitement #{selectedTraitement}</>}
+          </Btn>
+        </div>
+      )}
+    </Card>
+  );
+};
+
+// ═══════════════════════════════════════════════════════
+//  SECTION : DONNÉES
 // ═══════════════════════════════════════════════════════
 const SectionDonnees = ({ selectedTraitement, setSection }) => {
   const [tab,     setTab]     = useState("liste");
@@ -1239,19 +1634,24 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
   const [error,   setError]   = useState("");
   const [search,  setSearch]  = useState("");
 
-  const loadDonnees = async () => {
+  const loadDonnees = useCallback(async () => {
     if (!selectedTraitement) { setLoading(false); return; }
     setLoading(true); setError("");
     try { setDonnees(await apiFetch(`/api/donnees/par-traitement?traitementId=${selectedTraitement}`)); }
     catch (e) { setError(e.message); }
     finally { setLoading(false); }
-  };
+  }, [selectedTraitement]);
 
-  useEffect(() => { loadDonnees(); }, [selectedTraitement]);
+  useEffect(() => { loadDonnees(); }, [loadDonnees]);
 
   const handleDonneeAjoutee = (d) => {
-    setDonnees(prev => [d, ...prev]);
-    setTab("liste"); // revenir à la liste après ajout
+    if (d) setDonnees(prev => [d, ...prev]);
+    setTab("liste");
+  };
+
+  const handleImportDirect = async () => {
+    await loadDonnees();
+    setTab("liste");
   };
 
   const filtered = donnees.filter(d =>
@@ -1262,15 +1662,16 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
   );
 
   const tabs = [
-    { id: "liste",    label: "Liste des données",   Icon: Table2 },
-    { id: "saisie",   label: "Saisie manuelle",     Icon: PenLine },
-    { id: "entrepot", label: "Depuis l'entrepôt",   Icon: Archive },
+    { id: "liste",    label: "Liste des données",      Icon: Table2 },
+    { id: "saisie",   label: "Saisie manuelle",        Icon: PenLine },
+    { id: "entrepot", label: "Depuis l'entrepôt",      Icon: Archive },
+    { id: "import",   label: "Import Excel direct",    Icon: FileSpreadsheet },
   ];
 
   return (
     <div className="slide-in">
       <PageHeader title="Données collectées" subtitle={selectedTraitement ? `Traitement #${selectedTraitement} — ${donnees.length} entrée(s)` : "Sélectionnez un traitement"}>
-        <Btn onClick={() => setSection("import")}><Upload size={13} /> Importer fichier</Btn>
+        <Btn onClick={() => setSection("import")}><Upload size={13} /> Import entrepôt</Btn>
       </PageHeader>
 
       {!selectedTraitement && (
@@ -1283,12 +1684,14 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
 
       {selectedTraitement && (
         <>
-          <div style={{ display: "flex", gap: 4, background: T.grayBg, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: 4, marginBottom: 18, width: "fit-content" }}>
+          <div style={{ display: "flex", gap: 4, background: T.grayBg, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: 4, marginBottom: 18, width: "fit-content", flexWrap: "wrap" }}>
             {tabs.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
                 style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, cursor: "pointer", background: tab === t.id ? T.cardBg : "transparent", color: tab === t.id ? T.textPrimary : T.textMuted, boxShadow: tab === t.id ? T.cardShadow : "none", transition: "all 0.15s" }}>
-                <t.Icon size={14} /> {t.label}
-                {t.id === "entrepot" && <span style={{ fontSize: 10, background: T.orangeBg, color: T.orange, border: `1px solid ${T.orangeBorder}`, padding: "1px 6px", borderRadius: 8, fontWeight: 700 }}>Nouveau</span>}
+                <t.Icon size={14} />
+                {t.label}
+                {t.id === "entrepot" && <span style={{ fontSize: 10, background: T.orangeBg, color: T.orange, border: `1px solid ${T.orangeBorder}`, padding: "1px 6px", borderRadius: 8, fontWeight: 700 }}>Stock</span>}
+                {t.id === "import" && <span style={{ fontSize: 10, background: T.blueBg, color: T.blue, border: `1px solid ${T.blueBorder}`, padding: "1px 6px", borderRadius: 8, fontWeight: 700 }}>XLSX</span>}
               </button>
             ))}
           </div>
@@ -1336,8 +1739,8 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
           )}
 
           {tab === "saisie" && <SaisieManuelle selectedTraitement={selectedTraitement} onDonneeAjoutee={handleDonneeAjoutee} />}
-
           {tab === "entrepot" && <DepuisEntrepot selectedTraitement={selectedTraitement} onDonneeAjoutee={handleDonneeAjoutee} />}
+          {tab === "import" && <ImportDirectTraitement selectedTraitement={selectedTraitement} onDonneesAjoutees={handleImportDirect} />}
         </>
       )}
     </div>
@@ -1345,7 +1748,7 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : ENTREPÔT (vue dédiée)
+//  SECTION : ENTREPÔT
 // ═══════════════════════════════════════════════════════
 const SectionEntrepot = ({ setSection }) => {
   const [entrepot, setEntrepot] = useState([]);
@@ -1377,20 +1780,19 @@ const SectionEntrepot = ({ setSection }) => {
   });
 
   const stats = [
-    { label: "Total entrepôt", value: entrepot.length, color: T.orange, bg: T.orangeBg, Icon: Archive },
-    { label: "Données sensibles", value: entrepot.filter(d => d.typeDonneeSensible).length, color: T.red, bg: T.redBg, Icon: Lock },
+    { label: "Total entrepôt",       value: entrepot.length,                                    color: T.orange, bg: T.orangeBg, Icon: Archive },
+    { label: "Données sensibles",    value: entrepot.filter(d => d.typeDonneeSensible).length,  color: T.red,    bg: T.redBg,    Icon: Lock },
     { label: "Personnes distinctes", value: new Set(entrepot.map(d => d.personneId).filter(Boolean)).size, color: T.blue, bg: T.blueBg, Icon: Users },
-    { label: "Types différents", value: new Set(entrepot.map(d => d.typeDonneeId).filter(Boolean)).size, color: T.teal, bg: T.tealBg, Icon: Layers },
+    { label: "Types différents",     value: new Set(entrepot.map(d => d.typeDonneeId).filter(Boolean)).size, color: T.teal, bg: T.tealBg, Icon: Layers },
   ];
 
   return (
     <div className="slide-in">
-      <PageHeader title="Entrepôt de données" subtitle="Données importées non encore rattachées à un traitement">
+      <PageHeader title="Entrepôt de données" subtitle="Données importées — visibles par tous les utilisateurs métier">
         <Btn onClick={() => setSection("import")} variant="orange"><Upload size={13} /> Alimenter l'entrepôt</Btn>
         <Btn onClick={load}><RefreshCw size={13} /></Btn>
       </PageHeader>
 
-      {/* Stats entrepôt */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
         {stats.map((s, i) => (
           <Card key={i} style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -1407,15 +1809,13 @@ const SectionEntrepot = ({ setSection }) => {
         ))}
       </div>
 
-      {/* Bloc info */}
       <Card style={{ padding: "12px 16px", marginBottom: 16, background: T.orangeBg, border: `1px solid ${T.orangeBorder}` }}>
         <div style={{ display: "flex", gap: 10, fontSize: 12, color: T.orange }}>
           <Info size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>Ces données ont été importées depuis Excel mais ne sont <strong>pas encore rattachées à un traitement</strong>. Pour les utiliser, allez dans <strong>Données collectées</strong> d'un traitement et utilisez l'onglet <strong>Depuis l'entrepôt</strong>.</span>
+          <span>Ces données sont accessibles à <strong>tous les utilisateurs métier</strong>. Elles peuvent être rattachées à n'importe quel traitement via l'onglet <strong>Depuis l'entrepôt</strong>.</span>
         </div>
       </Card>
 
-      {/* Filtres */}
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
           <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textMuted }} />
@@ -1429,16 +1829,13 @@ const SectionEntrepot = ({ setSection }) => {
         </select>
       </div>
 
-      {/* Table */}
       <Card style={{ overflow: "hidden" }}>
         {loading && <div style={{ padding: 32, textAlign: "center" }}><Spinner dark /></div>}
         {!loading && entrepot.length === 0 && (
           <div style={{ padding: 48, textAlign: "center" }}>
             <PackageOpen size={40} color={T.textMuted} style={{ margin: "0 auto 14px", display: "block", opacity: 0.35 }} />
             <p style={{ color: T.textMuted, fontSize: 13, marginBottom: 16 }}>L'entrepôt est vide pour le moment.</p>
-            <Btn variant="primary" onClick={() => setSection("import")}>
-              <Upload size={13} /> Importer un fichier Excel
-            </Btn>
+            <Btn variant="primary" onClick={() => setSection("import")}><Upload size={13} /> Importer un fichier Excel</Btn>
           </div>
         )}
         {!loading && entrepot.length > 0 && (
@@ -1466,8 +1863,8 @@ const SectionEntrepot = ({ setSection }) => {
             </table>
             {filtered.length === 0 && <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun résultat pour « {search} »</div>}
             <div style={{ padding: "10px 16px", background: T.grayBg, borderTop: `1px solid ${T.cardBorder}`, fontSize: 12, color: T.textMuted, display: "flex", justifyContent: "space-between" }}>
-              <span>{filtered.length} entrée(s) affichée(s) sur {entrepot.length} dans l'entrepôt</span>
-              <span style={{ color: T.orange, fontWeight: 600 }}>Non rattachées à un traitement</span>
+              <span>{filtered.length} entrée(s) sur {entrepot.length}</span>
+              <span style={{ color: T.orange, fontWeight: 600 }}>Partagé entre tous les utilisateurs métier</span>
             </div>
           </>
         )}
@@ -1478,7 +1875,6 @@ const SectionEntrepot = ({ setSection }) => {
 
 // ═══════════════════════════════════════════════════════
 //  SECTION : IMPORT FICHIER EXCEL → ENTREPÔT
-//  (plus besoin d'ID de traitement)
 // ═══════════════════════════════════════════════════════
 const SectionImport = ({ setSection }) => {
   const [step,     setStep]     = useState("upload");
@@ -1522,9 +1918,8 @@ const SectionImport = ({ setSection }) => {
 
   return (
     <div className="slide-in">
-      <PageHeader title="Import vers l'entrepôt" subtitle="Importez des données personnelles depuis Excel — elles rejoignent l'entrepôt et pourront être rattachées à n'importe quel traitement" />
+      <PageHeader title="Import vers l'entrepôt" subtitle="Importez des données personnelles depuis Excel — partagées avec tous les utilisateurs métier" />
 
-      {/* Stepper */}
       <div style={{ display: "flex", alignItems: "center", marginBottom: 28 }}>
         {stepsDef.map((s, i, arr) => {
           const done   = (step === "preview" && i === 0) || (step === "result" && i <= 1);
@@ -1532,7 +1927,7 @@ const SectionImport = ({ setSection }) => {
           return (
             <div key={s.id} style={{ display: "flex", alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 28, height: 28, borderRadius: "50%", background: done ? T.green : active ? "#0D1F12" : T.grayBg, border: `2px solid ${done ? T.green : active ? "#0D1F12" : T.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: done ? T.green : active ? "#1A5C2A" : T.grayBg, border: `2px solid ${done ? T.green : active ? "#1A5C2A" : T.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {done ? <Check size={14} color="#fff" /> : <span style={{ fontSize: 12, fontWeight: 700, color: active ? "#fff" : T.textMuted }}>{i + 1}</span>}
                 </div>
                 <span style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? T.textPrimary : done ? T.green : T.textMuted }}>{s.label}</span>
@@ -1545,29 +1940,23 @@ const SectionImport = ({ setSection }) => {
 
       {step === "upload" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Spec du fichier */}
           <Card style={{ padding: 20 }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
               <Info size={15} color={T.gold} style={{ flexShrink: 0, marginTop: 2 }} />
               <div style={{ fontSize: 13, color: T.textSecondary, lineHeight: 1.7 }}>
-                <strong style={{ color: T.textPrimary }}>Structure du fichier Excel (.xlsx)</strong>
-                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "80px 1fr", gap: "4px 12px", fontSize: 12 }}>
-                  {[
-                    ["Colonne A", "nom — Nom de la personne (obligatoire)"],
-                    ["Colonne B", "prenom — Prénom de la personne (obligatoire)"],
-                    ["Colonne C", "email — Adresse email (optionnel, utilisé pour le dédoublonnage)"],
-                    ["Colonne D", "telephone — Téléphone (optionnel, utilisé pour le dédoublonnage)"],
-                    ["Colonne E", "type_donnee — Nom exact du type (ex: Email, Téléphone, CNI...)"],
-                    ["Colonne F", "valeur — Valeur de la donnée (obligatoire)"],
-                  ].map(([col, desc]) => (
-                    <>
-                      <span style={{ fontFamily: "'DM Mono', monospace", fontWeight: 700, color: T.orange }}>{col}</span>
-                      <span>{desc}</span>
-                    </>
-                  ))}
-                </div>
-                <div style={{ marginTop: 10, padding: "8px 12px", background: T.goldLight, border: `1px solid ${T.goldBorder}`, borderRadius: 7, fontSize: 12, color: T.yellow }}>
-                  💡 La ligne 1 est l'en-tête (ignorée). Les personnes sont <strong>automatiquement dédoublonnées</strong> par email ou téléphone. <strong>Aucun ID manuel</strong> n'est nécessaire.
+                <strong style={{ color: T.textPrimary }}>Formats acceptés</strong>
+                <div style={{ marginTop: 10, fontSize: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ padding: "8px 12px", background: T.grayBg, borderRadius: 8 }}>
+                    <strong style={{ color: T.blue }}>Format A (standard SOFITEX) — en-têtes :</strong><br />
+                    <code style={{ fontSize: 11 }}>NOM | PRENOM | EMAIL | TELEPHONE | DATE_NAISSANCE | NUMERO_CNIB | PROFESSION</code>
+                  </div>
+                  <div style={{ padding: "8px 12px", background: T.grayBg, borderRadius: 8 }}>
+                    <strong style={{ color: T.teal }}>Format B (type explicite) — en-têtes :</strong><br />
+                    <code style={{ fontSize: 11 }}>nom | prenom | email | telephone | type_donnee | valeur</code>
+                  </div>
+                  <div style={{ padding: "8px 12px", background: T.goldLight, border: `1px solid ${T.goldBorder}`, borderRadius: 8 }}>
+                    <strong style={{ color: T.gold }}>💡 Numéro CNIB pris en charge :</strong> Utilisez la colonne <code>NUMERO_CNIB</code> (Format A) ou saisissez <code>Numéro CNIB</code> comme type_donnee (Format B). Les doublons sont automatiquement ignorés.
+                  </div>
                 </div>
               </div>
             </div>
@@ -1620,11 +2009,6 @@ const SectionImport = ({ setSection }) => {
               </div>
             )}
           </Card>
-          <Card style={{ padding: 20 }}>
-            <p style={{ fontSize: 13, color: T.textSecondary, lineHeight: 1.7 }}>
-              Le fichier <strong>{file?.name}</strong> sera analysé et les données seront ajoutées à <strong>l'entrepôt</strong>. Les personnes seront créées ou récupérées automatiquement par email/téléphone. Vous pourrez ensuite les rattacher à un traitement depuis l'onglet <strong>Depuis l'entrepôt</strong>.
-            </p>
-          </Card>
         </div>
       )}
 
@@ -1635,12 +2019,12 @@ const SectionImport = ({ setSection }) => {
               <CheckCircle2 size={32} color={result.lignesImportees > 0 ? T.green : T.yellow} />
             </div>
             <div style={{ fontSize: 18, fontWeight: 700, color: T.textPrimary, marginBottom: 4 }}>Import dans l'entrepôt terminé</div>
-            <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 24 }}>Les données sont disponibles dans l'entrepôt</div>
+            <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 24 }}>Données disponibles pour tous les utilisateurs métier</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, maxWidth: 420, margin: "0 auto 24px" }}>
               {[
-                { label: "Importées", value: result.lignesImportees, color: T.green,  bg: T.greenBg },
-                { label: "Ignorées",  value: result.lignesEchouees ?? result.lignesEnErreur,  color: T.red,    bg: T.redBg },
-                { label: "Total",     value: result.totalLignes,     color: T.orange, bg: T.orangeBg },
+                { label: "Importées", value: result.lignesImportees,  color: T.green,  bg: T.greenBg },
+                { label: "Ignorées",  value: result.lignesEchouees ?? (result.totalLignes - result.lignesImportees), color: T.red, bg: T.redBg },
+                { label: "Total",     value: result.totalLignes,      color: T.orange, bg: T.orangeBg },
               ].map((s, i) => (
                 <div key={i} style={{ padding: "14px 12px", background: s.bg, borderRadius: 10, textAlign: "center" }}>
                   <div style={{ fontSize: 24, fontWeight: 800, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.value}</div>
@@ -1653,22 +2037,210 @@ const SectionImport = ({ setSection }) => {
               <Btn variant="orange" onClick={() => setSection("entrepot")}><Archive size={13} /> Voir l'entrepôt</Btn>
             </div>
           </Card>
-          {result.erreurs?.length > 0 && (
-            <Card style={{ padding: 20 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-                <AlertCircle size={15} color={T.red} />
-                <h3 style={{ fontSize: 13, fontWeight: 700, color: T.textPrimary }}>{result.erreurs.length} ligne(s) ignorée(s)</h3>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════
+//  SECTION : DEMANDES DE MODIFICATION / SUPPRESSION
+// ═══════════════════════════════════════════════════════
+const SectionDemandes = ({ userId }) => {
+  const [demandes,   setDemandes]   = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [filtre,     setFiltre]     = useState("EN_COURS");
+  const [motifRejet, setMotifRejet] = useState("");
+  const [demandeEnTraitement, setDemandeEnTraitement] = useState(null);
+  const [showRejetModal,      setShowRejetModal]      = useState(false);
+  const [loadingAction,       setLoadingAction]       = useState(false);
+
+  const load = useCallback(async () => {
+    if (!userId) return;
+    setLoading(true);
+    try {
+      const data = await apiFetch(`/api/demandes/par-um?umId=${userId}`);
+      setDemandes(data);
+    } catch (e) { toast.error(e.message || "Erreur"); }
+    finally { setLoading(false); }
+  }, [userId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = filtre === "all" ? demandes : demandes.filter(d => d.statutDemande === filtre);
+
+  const handleAccepter = async (demande) => {
+    setLoadingAction(true);
+    try {
+      await apiFetch(`/api/demandes/${demande.idDemande}/accepter`, { method: "PUT" });
+      toast.success("Demande acceptée et traitée !");
+      await load();
+    } catch (e) { toast.error(e.message || "Erreur"); }
+    finally { setLoadingAction(false); }
+  };
+
+  const handleRejeter = async () => {
+    if (!demandeEnTraitement) return;
+    setLoadingAction(true);
+    try {
+      await apiFetch(`/api/demandes/${demandeEnTraitement.idDemande}/rejeter`, {
+        method: "PUT",
+        body: JSON.stringify({ motifRejet: motifRejet.trim() || "Aucun motif fourni." }),
+      });
+      toast.success("Demande rejetée.");
+      setShowRejetModal(false); setMotifRejet(""); setDemandeEnTraitement(null);
+      await load();
+    } catch (e) { toast.error(e.message || "Erreur"); }
+    finally { setLoadingAction(false); }
+  };
+
+  const counts = {
+    EN_COURS: demandes.filter(d => d.statutDemande === "EN_COURS").length,
+    ACCEPTEE: demandes.filter(d => d.statutDemande === "ACCEPTEE").length,
+    REJETEE:  demandes.filter(d => d.statutDemande === "REJETEE").length,
+  };
+
+  return (
+    <div className="slide-in">
+      {/* Modale rejet */}
+      {showRejetModal && (
+        <>
+          <div onClick={() => { setShowRejetModal(false); setMotifRejet(""); }} style={{ position: "fixed", inset: 0, background: "rgba(8,15,11,0.5)", zIndex: 900, backdropFilter: "blur(3px)" }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 901, width: 440, background: T.cardBg, borderRadius: 16, boxShadow: "0 24px 60px rgba(0,0,0,0.22)", border: `1px solid ${T.cardBorder}`, padding: 28 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 10, background: T.redBg, border: `1px solid ${T.redBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <XCircle size={18} color={T.red} />
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {result.erreurs.map((msg, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.redBg, borderRadius: 8 }}>
-                    <XCircle size={13} color={T.red} />
-                    <span style={{ fontSize: 12, color: T.textPrimary }}>{msg}</span>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.textPrimary }}>Rejeter la demande</div>
+                <div style={{ fontSize: 12, color: T.textMuted }}>Demande #{demandeEnTraitement?.idDemande} · {demandeEnTraitement?.typeDemande}</div>
+              </div>
+              <button onClick={() => { setShowRejetModal(false); setMotifRejet(""); }} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: T.textMuted }}><X size={17} /></button>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.textSecondary, display: "block", marginBottom: 6 }}>Motif du rejet (optionnel)</label>
+              <textarea value={motifRejet} onChange={e => setMotifRejet(e.target.value)} rows={3} placeholder="Expliquez pourquoi cette demande est rejetée…"
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 13, color: T.textPrimary, background: T.grayBg, outline: "none", fontFamily: "inherit", resize: "none" }} />
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn onClick={() => { setShowRejetModal(false); setMotifRejet(""); }}>Annuler</Btn>
+              <Btn variant="danger" onClick={handleRejeter} disabled={loadingAction}>
+                {loadingAction ? <><Spinner /> Rejet...</> : <><XCircle size={13} /> Confirmer le rejet</>}
+              </Btn>
+            </div>
+          </div>
+        </>
+      )}
+
+      <PageHeader title="Demandes citoyens" subtitle="Demandes de modification ou suppression de données personnelles">
+        <Btn onClick={load}><RefreshCw size={13} /></Btn>
+      </PageHeader>
+
+      {/* Statistiques rapides */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "En attente",  value: counts.EN_COURS, color: T.yellow, bg: T.yellowBg, border: T.yellowBorder, id: "EN_COURS" },
+          { label: "Acceptées",   value: counts.ACCEPTEE, color: T.green,  bg: T.greenBg,  border: T.greenBorder,  id: "ACCEPTEE" },
+          { label: "Rejetées",    value: counts.REJETEE,  color: T.red,    bg: T.redBg,    border: T.redBorder,    id: "REJETEE" },
+        ].map(s => (
+          <Card key={s.id} style={{ padding: "14px 16px", cursor: "pointer", border: filtre === s.id ? `2px solid ${s.color}` : `1px solid ${T.cardBorder}` }} onClick={() => setFiltre(s.id)}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: s.color, fontFamily: "'DM Mono', monospace" }}>{loading ? "—" : s.value}</div>
+            <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Filtre */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        {[["all", "Toutes"], ["EN_COURS", "En attente"], ["ACCEPTEE", "Acceptées"], ["REJETEE", "Rejetées"]].map(([val, lbl]) => (
+          <button key={val} onClick={() => setFiltre(val)}
+            style={{ padding: "6px 14px", borderRadius: 20, border: `1px solid ${filtre === val ? T.green : T.cardBorder}`, background: filtre === val ? T.greenBg : "transparent", color: filtre === val ? T.green : T.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {loading && <Card style={{ padding: 40, textAlign: "center" }}><Spinner dark /></Card>}
+      {!loading && filtered.length === 0 && (
+        <EmptyState icon={ClipboardList} message="Aucune demande pour ce filtre." />
+      )}
+      {!loading && filtered.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map(d => {
+            const isSuppression = d.typeDemande === "SUPPRESSION";
+            const isEnCours = d.statutDemande === "EN_COURS";
+            return (
+              <Card key={d.idDemande} style={{ padding: 20 }}>
+                <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                  {/* Icône type */}
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: isSuppression ? T.redBg : T.blueBg, border: `1.5px solid ${isSuppression ? T.redBorder : T.blueBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {isSuppression ? <Trash2 size={20} color={T.red} /> : <Pencil size={20} color={T.blue} />}
                   </div>
-                ))}
-              </div>
-            </Card>
-          )}
+
+                  {/* Contenu */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                      <Badge type={d.typeDemande} />
+                      <Badge type={d.statutDemande} />
+                      <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>#{d.idDemande} · {d.dateDemande}</span>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px 20px", fontSize: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Citoyen</div>
+                        <div style={{ fontWeight: 600, color: T.textPrimary }}>{d.usagerNomComplet || d.personneNomComplet || "—"}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Donnée concernée</div>
+                        <div style={{ fontWeight: 600, color: T.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.donneeValeur || "—"}</div>
+                      </div>
+                      {!isSuppression && d.nouvelleValeur && (
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Nouvelle valeur demandée</div>
+                          <div style={{ fontWeight: 600, color: T.blue }}>{d.nouvelleValeur}</div>
+                        </div>
+                      )}
+                    </div>
+
+                    {d.descriptionDemande && (
+                      <div style={{ marginTop: 10, padding: "8px 12px", background: T.grayBg, borderRadius: 8, fontSize: 12, color: T.textSecondary, fontStyle: "italic" }}>
+                        « {d.descriptionDemande} »
+                      </div>
+                    )}
+
+                    {/* Réponse / motif si traité */}
+                    {d.reponse && (
+                      <div style={{ marginTop: 8, padding: "7px 12px", background: T.greenBg, border: `1px solid ${T.greenBorder}`, borderRadius: 8, fontSize: 12, color: T.green }}>
+                        ✓ {d.reponse}
+                      </div>
+                    )}
+                    {d.motifRejet && (
+                      <div style={{ marginTop: 8, padding: "7px 12px", background: T.redBg, border: `1px solid ${T.redBorder}`, borderRadius: 8, fontSize: 12, color: T.red }}>
+                        ✗ Rejet : {d.motifRejet}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  {isEnCours && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+                      <Btn variant="success" onClick={() => handleAccepter(d)} disabled={loadingAction} style={{ fontSize: 12, padding: "7px 14px" }}>
+                        <CheckCircle2 size={13} /> Accepter
+                      </Btn>
+                      <Btn variant="danger" onClick={() => { setDemandeEnTraitement(d); setShowRejetModal(true); }} disabled={loadingAction} style={{ fontSize: 12, padding: "7px 14px" }}>
+                        <XCircle size={13} /> Rejeter
+                      </Btn>
+                    </div>
+                  )}
+                  {!isEnCours && d.dateTraitement && (
+                    <div style={{ fontSize: 11, color: T.textMuted, flexShrink: 0, textAlign: "right" }}>
+                      Traité le<br />{d.dateTraitement}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1715,17 +2287,28 @@ export default function Tb_utilisateur_Metier() {
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
-      <TopBar onToggle={() => setCollapsed(c => !c)} userName={userInfo.name} userInitials={userInfo.initials} />
+      <TopBar
+        onToggle={() => setCollapsed(c => !c)}
+        userId={userId}
+      />
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <Sidebar active={section} setActive={setSection} collapsed={collapsed} userName={userInfo.name} userService={userInfo.service} userInitials={userInfo.initials} />
+        <Sidebar
+          active={section}
+          setActive={setSection}
+          collapsed={collapsed}
+          userName={userInfo.name}
+          userService={userInfo.service}
+          userInitials={userInfo.initials}
+        />
         <main style={{ flex: 1, overflow: "auto", padding: "24px 28px", background: T.mainBg }}>
-          {section === "dashboard"   && <SectionDashboard setSection={setSection} setSelectedSession={setSelectedSession} userId={userId} userName={userInfo.name} />}
-          {section === "sessions"    && <SectionSessions  setSection={setSection} setSelectedSession={setSelectedSession} />}
-          {section === "traitements" && <SectionTraitements selectedSession={selectedSession} setSection={setSection} setSelectedTraitement={setSelectedTraitement} userId={userId} />}
-          {section === "donnees"     && <SectionDonnees selectedTraitement={selectedTraitement} setSection={setSection} />}
-          {section === "entrepot"    && <SectionEntrepot setSection={setSection} />}
-          {section === "import"      && <SectionImport setSection={setSection} />}
+          {section === "dashboard"   && <SectionDashboard    setSection={setSection} setSelectedSession={setSelectedSession} userId={userId} userName={userInfo.name} />}
+          {section === "sessions"    && <SectionSessions     setSection={setSection} setSelectedSession={setSelectedSession} />}
+          {section === "traitements" && <SectionTraitements  selectedSession={selectedSession} setSection={setSection} setSelectedTraitement={setSelectedTraitement} userId={userId} />}
+          {section === "donnees"     && <SectionDonnees      selectedTraitement={selectedTraitement} setSection={setSection} />}
+          {section === "entrepot"    && <SectionEntrepot     setSection={setSection} />}
+          {section === "import"      && <SectionImport       setSection={setSection} />}
+          {section === "demandes"    && <SectionDemandes     userId={userId} />}
         </main>
       </div>
     </div>

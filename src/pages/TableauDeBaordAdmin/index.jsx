@@ -15,7 +15,7 @@ import { useNavigate } from "react-router-dom";
 // ═══════════════════════════════════════════════════════
 //  CONFIG & THÈME
 // ═══════════════════════════════════════════════════════
-const BASE = 'http://192.168.1.103:8080/api';
+const BASE = 'http://localhost:8080/api';
 
 const T = {
   sidebarBg:"#0D1F12",sidebarBorder:"#1A3320",sidebarText:"#7A9E8A",
