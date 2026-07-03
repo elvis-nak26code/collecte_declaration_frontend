@@ -29,57 +29,42 @@ const parseJwt = (t) => {
 //  THÈME — Palette DG : Bleu ardoise + Or institutionnel
 // ═══════════════════════════════════════════════════════
 const T = {
-  // Sidebar / header
   sidebarBg: "#0F1D2E",
   sidebarBorder: "#1A2F47",
   sidebarText: "#7A9BB5",
   sidebarActive: "#1E4976",
-
-  // Page
   mainBg: "#F1F4F8",
   cardBg: "#FFFFFF",
   cardBorder: "#DDE3EC",
   cardShadow: "0 1px 4px rgba(15,29,46,0.07)",
-
-  // Texte
   textPrimary: "#0F1D2E",
   textSecondary: "#3D5166",
   textMuted: "#8A9BB0",
-
-  // Couleurs sémantiques
   gold: "#B8860B",
   goldLight: "#FEF7E6",
   goldBorder: "#E6B84A",
-
   blue: "#1E4976",
   blueBg: "#EEF4FB",
   blueBorder: "#BFDBFE",
   blueLight: "#3B7DD8",
-
   green: "#15803D",
   greenBg: "#F0FDF4",
   greenBorder: "#86EFAC",
-
   red: "#B91C1C",
   redBg: "#FEF2F2",
   redBorder: "#FECACA",
-
   yellow: "#B45309",
   yellowBg: "#FFFBEB",
   yellowBorder: "#FDE68A",
-
   purple: "#6D28D9",
   purpleBg: "#F5F3FF",
   purpleBorder: "#C4B5FD",
-
   teal: "#0E7490",
   tealBg: "#ECFEFF",
   tealBorder: "#A5F3FC",
-
   gray: "#374151",
   grayBg: "#F8FAFC",
   grayBorder: "#E2E8F0",
-
   orange: "#C2410C",
   orangeBg: "#FFF7ED",
   orangeBorder: "#FED7AA",
@@ -389,7 +374,7 @@ const TypeIcon = ({ type, size = 16 }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION DÉTAIL — affichage complet d'une déclaration
+//  SECTION DÉTAIL
 // ═══════════════════════════════════════════════════════
 const DetailRow = ({ label, value, full = false }) => {
   if (!value && value !== false && value !== 0) return null;
@@ -448,14 +433,24 @@ const ModalDeclaration = ({ declaration, onClose, onValider, onRejeter }) => {
   const handleValider = async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${BASE}/declarations/${d.idDeclaration}/valider`, { method: "PUT", headers: authH() });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Erreur ${r.status}`); }
+      // PUT sans body — le DG est identifié via le JWT
+      const r = await fetch(`${BASE}/declarations/${d.idDeclaration}/valider`, {
+        method: "PUT",
+        headers: authH(),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.message || `Erreur ${r.status}`);
+      }
       const updated = await r.json();
       onValider(updated);
       onClose();
       toast.success(`Déclaration #${d.idDeclaration} approuvée — transmise à la CIL`);
-    } catch (e) { toast.error(e.message); }
-    finally { setLoading(false); }
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRejeter = async () => {
@@ -463,16 +458,23 @@ const ModalDeclaration = ({ declaration, onClose, onValider, onRejeter }) => {
     setLoading(true);
     try {
       const r = await fetch(`${BASE}/declarations/${d.idDeclaration}/rejeter`, {
-        method: "PUT", headers: authH(),
+        method: "PUT",
+        headers: authH(),
         body: JSON.stringify({ commentaire }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || `Erreur ${r.status}`); }
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.message || `Erreur ${r.status}`);
+      }
       const updated = await r.json();
       onRejeter(updated);
       onClose();
       toast.success(`Déclaration #${d.idDeclaration} rejetée — DPO notifié`);
-    } catch (e) { toast.error(e.message); }
-    finally { setLoading(false); }
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -515,7 +517,6 @@ const ModalDeclaration = ({ declaration, onClose, onValider, onRejeter }) => {
           )}
           {!loadingDetail && (
             <>
-              {/* Identification */}
               <SectionBloc icon={User} color={T.blue} bg={T.blueBg} border={T.blueBorder} title="Identification & Responsable">
                 <DetailRow label="Responsable déclaration" value={d.responsableDeclaration} />
                 <DetailRow label="Contact confidentialité" value={d.contactConfidentialite} />
@@ -525,7 +526,6 @@ const ModalDeclaration = ({ declaration, onClose, onValider, onRejeter }) => {
                 <DetailRow label="Durée de conservation" value={d.dureeConservation} />
               </SectionBloc>
 
-              {/* Données */}
               <SectionBloc icon={Database} color={T.teal} bg={T.tealBg} border={T.tealBorder} title="Données traitées">
                 <DetailRow label="Catégories de données" value={d.categoriesDonnees} full />
                 <DetailRow label="Origine des données" value={d.origineDonnees} full />
@@ -534,7 +534,6 @@ const ModalDeclaration = ({ declaration, onClose, onValider, onRejeter }) => {
                 {d.transfertPaysEtranger && <DetailRow label="Pays de destination" value={d.paysDestination} />}
               </SectionBloc>
 
-              {/* Sécurité */}
               <SectionBloc icon={Lock} color={T.purple} bg={T.purpleBg} border={T.purpleBorder} title="Sécurité & Accès">
                 <DetailRow label="Mesures de sécurité" value={d.mesuresSecurite} full />
                 <DetailRow label="Catégories d'accès" value={d.categoriesPersonnesAcces} />
@@ -551,7 +550,6 @@ const ModalDeclaration = ({ declaration, onClose, onValider, onRejeter }) => {
                 )}
               </SectionBloc>
 
-              {/* Droits */}
               <SectionBloc icon={Shield} color={T.green} bg={T.greenBg} border={T.greenBorder} title="Droits des personnes">
                 <DetailRow label="Moyens d'information" value={d.moyensInformationDroits} />
                 <DetailRow label="Moyens d'exercice" value={d.moyensExerciceDroits} />
@@ -561,7 +559,6 @@ const ModalDeclaration = ({ declaration, onClose, onValider, onRejeter }) => {
                 <DetailRow label="Fonction" value={d.fonctionResponsable} />
               </SectionBloc>
 
-              {/* Traitement source */}
               {d.traitementId && (
                 <SectionBloc icon={Layers} color={T.gray} bg={T.grayBg} border={T.grayBorder} title="Traitement associé">
                   <DetailRow label="ID Traitement" value={`#${d.traitementId}`} />
@@ -634,7 +631,7 @@ const DeclarationCard = ({ d, onView }) => {
       <div style={{ display: "flex", alignItems: "stretch" }}>
         <div style={{
           width: 4, flexShrink: 0,
-          background: isPending ? T.yellow : d.statut?.includes("APPROUVEE") ? T.green : T.red,
+          background: isPending ? T.yellow : d.statut?.includes("APPROUVEE") || d.statut?.includes("VALIDEE") ? T.green : T.red,
           borderRadius: "0 0 0 12px",
         }} />
         <div style={{ flex: 1, padding: "16px 20px" }}>
@@ -682,15 +679,16 @@ const DeclarationCard = ({ d, onView }) => {
 // ═══════════════════════════════════════════════════════
 //  SECTION : TABLEAU DE BORD DG
 // ═══════════════════════════════════════════════════════
-const SectionDashboard = ({ declarations, allDeclarations, setSection, dgInfo }) => {
-  const pending = declarations.filter(d => d.statut === "EN_ATTENTE");
-  const approved = allDeclarations.filter(d => d.statut === "APPROUVEE_DG" || d.statut === "EN_VERIFICATION_CIL" || d.statut === "VALIDEE_CIL");
-  const rejected = allDeclarations.filter(d => d.statut === "REJETEE_DG");
-  const validatedCil = allDeclarations.filter(d => d.statut === "VALIDEE_CIL");
+const SectionDashboard = ({ declarations, historique, setSection, dgInfo }) => {
+  const pending = declarations; // déjà filtrées EN_ATTENTE
+  const approved = historique.filter(d => d.statut === "APPROUVEE_DG" || d.statut === "EN_VERIFICATION_CIL" || d.statut === "VALIDEE_CIL");
+  const rejected = historique.filter(d => d.statut === "REJETEE_DG");
+  const validatedCil = historique.filter(d => d.statut === "VALIDEE_CIL");
 
+  const allDecls = [...pending, ...historique];
   const typeStats = ["NORMALE", "COLLECTE_SITE", "VIDEO_SURVEILLANCE", "AUTORISATION"].map(t => ({
     type: t,
-    count: allDeclarations.filter(d => d.typeDeclaration === t).length,
+    count: allDecls.filter(d => d.typeDeclaration === t).length,
   }));
 
   const stats = [
@@ -707,7 +705,6 @@ const SectionDashboard = ({ declarations, allDeclarations, setSection, dgInfo })
         subtitle={`Bonjour ${dgInfo?.prenom || "DG"} — ${new Date().toLocaleDateString("fr-FR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`}
       />
 
-      {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14, marginBottom: 20 }}>
         {stats.map((s, i) => (
           <Card key={i} onClick={() => setSection(s.section)} className="card-hover" style={{ padding: "18px 20px", position: "relative", overflow: "hidden", cursor: "pointer" }}>
@@ -772,7 +769,7 @@ const SectionDashboard = ({ declarations, allDeclarations, setSection, dgInfo })
           </div>
           <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
             {typeStats.map(({ type, count }) => {
-              const total = allDeclarations.length || 1;
+              const total = allDecls.length || 1;
               const pct = Math.round((count / total) * 100);
               const colors = { NORMALE: T.blue, COLLECTE_SITE: T.teal, VIDEO_SURVEILLANCE: T.purple, AUTORISATION: T.yellow };
               const labels = { NORMALE: "Normale", COLLECTE_SITE: "Site Internet", VIDEO_SURVEILLANCE: "Vidéosurveillance", AUTORISATION: "Autorisation" };
@@ -791,7 +788,7 @@ const SectionDashboard = ({ declarations, allDeclarations, setSection, dgInfo })
                 </div>
               );
             })}
-            {allDeclarations.length === 0 && <p style={{ fontSize: 13, color: T.textMuted, textAlign: "center" }}>Aucune déclaration</p>}
+            {allDecls.length === 0 && <p style={{ fontSize: 13, color: T.textMuted, textAlign: "center" }}>Aucune déclaration</p>}
           </div>
         </Card>
       </div>
@@ -802,7 +799,7 @@ const SectionDashboard = ({ declarations, allDeclarations, setSection, dgInfo })
 // ═══════════════════════════════════════════════════════
 //  SECTION : DÉCLARATIONS EN ATTENTE
 // ═══════════════════════════════════════════════════════
-const SectionEnAttente = ({ declarations, setDeclarations, allDeclarations, setAllDeclarations }) => {
+const SectionEnAttente = ({ declarations, setDeclarations, onHistoriqueChange }) => {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -832,12 +829,12 @@ const SectionEnAttente = ({ declarations, setDeclarations, allDeclarations, setA
 
   const handleValider = (updated) => {
     setDeclarations(prev => prev.filter(d => d.idDeclaration !== updated.idDeclaration));
-    setAllDeclarations(prev => [...prev.filter(d => d.idDeclaration !== updated.idDeclaration), updated]);
+    if (onHistoriqueChange) onHistoriqueChange();
   };
 
   const handleRejeter = (updated) => {
     setDeclarations(prev => prev.filter(d => d.idDeclaration !== updated.idDeclaration));
-    setAllDeclarations(prev => [...prev.filter(d => d.idDeclaration !== updated.idDeclaration), updated]);
+    if (onHistoriqueChange) onHistoriqueChange();
   };
 
   return (
@@ -874,12 +871,11 @@ const SectionEnAttente = ({ declarations, setDeclarations, allDeclarations, setA
         <Btn variant="outline" onClick={load}><RefreshCw size={13} /> Rafraîchir</Btn>
       </PageHeader>
 
-      {/* Bandeau d'information workflow */}
       {declarations.length > 0 && (
         <div style={{ background: T.blueBg, border: `1px solid ${T.blueBorder}`, borderRadius: 10, padding: "12px 16px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: T.blue }}>
           <Info size={14} style={{ flexShrink: 0 }} />
           <span>
-            <strong>Workflow :</strong> En approuvant une déclaration, celle-ci est automatiquement transmise à la CIL pour vérification de conformité. En la rejetant, le DPO est notifié pour corrections.
+            <strong>Workflow :</strong> En approuvant, la déclaration est transmise à la CIL pour vérification. En rejetant, le DPO est notifié pour corrections.
           </span>
         </div>
       )}
@@ -907,39 +903,35 @@ const SectionEnAttente = ({ declarations, setDeclarations, allDeclarations, setA
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : HISTORIQUE (toutes décisions)
+//  SECTION : HISTORIQUE — utilise /historique-dg
 // ═══════════════════════════════════════════════════════
-const SectionHistorique = ({ allDeclarations, setAllDeclarations }) => {
+const SectionHistorique = ({ historique, setHistorique }) => {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [filterStatut, setFilterStatut] = useState("all");
   const [filterType, setFilterType] = useState("all");
 
-  // Charge toutes les déclarations traitées (approuvées + rejetées + en vérif CIL + validées CIL)
+  /**
+   * Charge l'historique complet depuis le nouvel endpoint dédié.
+   * /historique-dg retourne toutes les déclarations hors BROUILLON avec DPO renseigné,
+   * peu importe leur statut actuel.
+   */
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // On fetch en-attente + pour-cil pour avoir les deux extrêmes
-      const [r1, r2] = await Promise.all([
-        fetch(`${BASE}/declarations/en-attente`, { headers: authH() }),
-        fetch(`${BASE}/declarations/pour-cil`, { headers: authH() }),
-      ]);
-      const pending = r1.ok ? await r1.json() : [];
-      const cil = r2.ok ? await r2.json() : [];
-      // Merge avec celles déjà connues (approuvées/rejetées en local)
-      const merged = [...allDeclarations];
-      [...pending, ...cil].forEach(d => {
-        if (!merged.find(x => x.idDeclaration === d.idDeclaration)) merged.push(d);
-      });
-      setAllDeclarations(merged);
+      const r = await fetch(`${BASE}/declarations/historique-dg`, { headers: authH() });
+      if (!r.ok) throw new Error(`Erreur ${r.status}`);
+      const data = await r.json();
+      setHistorique(data);
     } catch (e) { toast.error(e.message); }
     finally { setLoading(false); }
-  }, [allDeclarations, setAllDeclarations]);
+  }, [setHistorique]);
 
-  useEffect(() => { if (allDeclarations.length === 0) load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
-  const nonPending = allDeclarations.filter(d => d.statut !== "EN_ATTENTE");
+  // L'historique exclut celles encore EN_ATTENTE (elles sont dans la section "À valider")
+  const nonPending = historique.filter(d => d.statut !== "EN_ATTENTE");
 
   const filtered = nonPending.filter(d => {
     const matchSearch = !search.trim() ||
@@ -1039,9 +1031,12 @@ const SectionHistorique = ({ allDeclarations, setAllDeclarations }) => {
 export default function Tb_DG() {
   const [section, setSection] = useState("dashboard");
   const [collapsed, setCollapsed] = useState(false);
-  const [declarations, setDeclarations] = useState([]); // EN_ATTENTE uniquement
-  const [allDeclarations, setAllDeclarations] = useState([]); // historique
+  // declarations = EN_ATTENTE uniquement (soumises par DPO, dpo != null)
+  const [declarations, setDeclarations] = useState([]);
+  // historique = toutes les déclarations hors BROUILLON hors EN_ATTENTE
+  const [historique, setHistorique] = useState([]);
   const [notifCount, setNotifCount] = useState(0);
+  const [histLoadTrigger, setHistLoadTrigger] = useState(0);
 
   const [dgInfo, setDgInfo] = useState(() => {
     const token = localStorage.getItem("token");
@@ -1081,8 +1076,9 @@ export default function Tb_DG() {
     return () => clearInterval(iv);
   }, [dgInfo.id]);
 
-  // Merge des états pour allDeclarations (en attente + historique)
-  const fullAll = [...allDeclarations, ...declarations.filter(d => !allDeclarations.find(a => a.idDeclaration === d.idDeclaration))];
+  // Quand une déclaration est validée/rejetée depuis "À valider",
+  // on force un rechargement de l'historique
+  const handleHistoriqueChange = () => setHistLoadTrigger(t => t + 1);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", fontFamily: "'Instrument Sans', 'DM Sans', system-ui, sans-serif", overflow: "hidden" }}>
@@ -1113,7 +1109,7 @@ export default function Tb_DG() {
           {section === "dashboard" && (
             <SectionDashboard
               declarations={declarations}
-              allDeclarations={fullAll}
+              historique={historique}
               setSection={setSection}
               dgInfo={dgInfo}
             />
@@ -1122,14 +1118,14 @@ export default function Tb_DG() {
             <SectionEnAttente
               declarations={declarations}
               setDeclarations={setDeclarations}
-              allDeclarations={fullAll}
-              setAllDeclarations={setAllDeclarations}
+              onHistoriqueChange={handleHistoriqueChange}
             />
           )}
           {section === "historique" && (
             <SectionHistorique
-              allDeclarations={fullAll}
-              setAllDeclarations={setAllDeclarations}
+              historique={historique}
+              setHistorique={setHistorique}
+              key={histLoadTrigger}
             />
           )}
         </main>

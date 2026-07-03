@@ -5,7 +5,7 @@ import {
   FolderOpen, FileText, Bell, LogOut, Menu, Plus, Eye, Check, X,
   Clock, CheckCircle2, XCircle, AlertCircle, Send,
   StopCircle, Download, RefreshCw, ChevronLeft, ChevronRight,
-  BarChart3, Cpu, ArrowUpRight, Shield,
+  BarChart3, Cpu, ArrowUpRight, Shield, Pencil,
   Activity, FileCheck, Calendar, User, Wrench
 } from "lucide-react";
 
@@ -15,6 +15,27 @@ import {
 const BASE = "http://localhost:8080/api";
 const authH = () => ({ Authorization: `Bearer ${localStorage.getItem("token")}`, "Content-Type": "application/json" });
 const parseJwt = (t) => { try { return JSON.parse(atob(t.split(".")[1])); } catch { return {}; } };
+
+// Une déclaration ne doit s'afficher dans l'espace DPO QUE si elle a été
+// créée manuellement par le DPO (bouton "Déclarer"). Les déclarations
+// auto-créées en BROUILLON en même temps que le traitement (par
+// l'Utilisateur Métier) doivent rester invisibles tant qu'elles n'ont pas
+// été reprises/soumises explicitement.
+const estDeclarationManuelle = (d) => d?.origineDeclaration === "MANUELLE";
+
+// Statuts pour lesquels une déclaration peut encore être modifiée par le DPO
+// (doit rester synchronisé avec DeclarationService.verifierModifiable côté backend).
+const STATUTS_MODIFIABLES = ["BROUILLON", "EN_ATTENTE", "EN_ATTENTE_DG", "REJETEE_DG", "REJETEE_CIL"];
+const estModifiable = (statut) => STATUTS_MODIFIABLES.includes(statut);
+const estRejetee = (statut) => statut === "REJETEE_DG" || statut === "REJETEE_CIL";
+
+// Endpoints REST (création/édition) par type de déclaration
+const ENDPOINT_TYPE = {
+  NORMALE: "normale",
+  COLLECTE_SITE: "collecte-site",
+  VIDEO_SURVEILLANCE: "video-surveillance",
+  AUTORISATION: "autorisation",
+};
 
 // ═══════════════════════════════════════════════════════
 //  THÈME
@@ -639,9 +660,11 @@ const FormulaireAutorisation = ({ f, upd, etape }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  MODALE DÉCLARATION MULTI-ÉTAPES
+//  MODALE DÉCLARATION MULTI-ÉTAPES (création ET édition)
 // ═══════════════════════════════════════════════════════
-const ModalDeclaration = ({ traitement, declaration, onClose, onSave, dpoId }) => {
+const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onSave, dpoId }) => {
+  const isEdit = mode === "edit" && !!declaration?.idDeclaration;
+
   const init = {
     // Identification (étape 0)
     responsableDeclaration:  declaration?.responsableDeclaration  || "",
@@ -754,7 +777,7 @@ const ModalDeclaration = ({ traitement, declaration, onClose, onSave, dpoId }) =
 
   const buildPayload = () => {
     const commun = {
-      traitementId: traitement.idTraitement,
+      traitementId: traitement?.idTraitement,
       dateSoumission: new Date().toISOString().split("T")[0],
       secteur:f.secteur, natureDemande:f.natureDemande||null,
       responsableDeclaration:f.responsableDeclaration,
@@ -841,18 +864,42 @@ const ModalDeclaration = ({ traitement, declaration, onClose, onSave, dpoId }) =
 
   const handleSubmit = async () => {
     setLoading(true); setError("");
-    const endpointMap = {
-      NORMALE:"/declarations/normale",
-      COLLECTE_SITE:"/declarations/collecte-site",
-      VIDEO_SURVEILLANCE:"/declarations/video-surveillance",
-      AUTORISATION:"/declarations/autorisation"
-    };
+    const suffix = ENDPOINT_TYPE[f.typeDeclaration] || "normale";
+
     try {
-      const url = BASE + (endpointMap[f.typeDeclaration]||"/declarations/normale");
-      const r = await fetch(url, { method:"POST", headers:authH(), body:JSON.stringify(buildPayload()) });
-      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
-      const data = await r.json();
-      onSave(data); onClose(); toast.success("Déclaration soumise à la Direction Générale !");
+      if (isEdit) {
+        // ── ÉDITION : PUT sur la déclaration existante ──────────────────
+        const url = `${BASE}/declarations/${declaration.idDeclaration}/${suffix}`;
+        const r = await fetch(url, { method:"PUT", headers:authH(), body:JSON.stringify(buildPayload()) });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
+        let data = await r.json();
+
+        // Si la déclaration avait été rejetée (DG ou CIL), on la renvoie
+        // automatiquement dans le circuit (statut → EN_ATTENTE, pour le DG).
+        const etaitRejetee = estRejetee(declaration.statut);
+        if (etaitRejetee) {
+          const rs = await fetch(`${BASE}/declarations/${declaration.idDeclaration}/soumettre`, { method:"PUT", headers:authH() });
+          if (!rs.ok) { const e = await rs.json().catch(()=>({})); throw new Error(e.message||`Erreur ${rs.status}`); }
+          data = await rs.json();
+          toast.success("Déclaration corrigée et renvoyée à la Direction Générale !");
+        } else {
+          toast.success("Déclaration mise à jour !");
+        }
+        onSave(data); onClose();
+      } else {
+        // ── CRÉATION : POST ──────────────────────────────────────────────
+        const endpointMap = {
+          NORMALE:"/declarations/normale",
+          COLLECTE_SITE:"/declarations/collecte-site",
+          VIDEO_SURVEILLANCE:"/declarations/video-surveillance",
+          AUTORISATION:"/declarations/autorisation"
+        };
+        const url = BASE + (endpointMap[f.typeDeclaration]||"/declarations/normale");
+        const r = await fetch(url, { method:"POST", headers:authH(), body:JSON.stringify(buildPayload()) });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
+        const data = await r.json();
+        onSave(data); onClose(); toast.success("Déclaration soumise à la Direction Générale !");
+      }
     } catch(e) { setError(e.message); }
     finally { setLoading(false); }
   };
@@ -860,12 +907,13 @@ const ModalDeclaration = ({ traitement, declaration, onClose, onSave, dpoId }) =
   const renderEtapeContent = () => {
     if (etape===0) return (
       <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-        <Sel label="Type de déclaration" value={f.typeDeclaration} onChange={e=>{upd("typeDeclaration",e.target.value);setEtape(0);}}>
+        <Sel label="Type de déclaration" value={f.typeDeclaration} onChange={e=>{upd("typeDeclaration",e.target.value);setEtape(0);}} readOnly={isEdit}>
           <option value="NORMALE">Déclaration normale</option>
           <option value="COLLECTE_SITE">Collecte via site internet</option>
           <option value="VIDEO_SURVEILLANCE">Vidéosurveillance</option>
           <option value="AUTORISATION">Demande d'autorisation</option>
         </Sel>
+        {isEdit && <div style={{ fontSize:11,color:T.textMuted }}>Le type de déclaration ne peut pas être modifié après création.</div>}
         <ChampsCommuns1 f={f} upd={upd}/>
       </div>
     );
@@ -890,17 +938,28 @@ const ModalDeclaration = ({ traitement, declaration, onClose, onSave, dpoId }) =
       <div style={{ position:"fixed",top:"50%",left:"50%",transform:"translate(-50%,-50%)",zIndex:901,width:640,maxHeight:"92vh",overflowY:"auto",background:T.cardBg,borderRadius:16,boxShadow:"0 24px 60px rgba(0,0,0,0.2)",border:`1px solid ${T.cardBorder}` }}>
         <div style={{ padding:"18px 22px 14px",borderBottom:`1px solid ${T.cardBorder}`,position:"sticky",top:0,background:T.cardBg,zIndex:1 }}>
           <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:14 }}>
-            <div style={{ width:38,height:38,borderRadius:10,background:T.purpleBg,border:`1px solid ${T.purpleBorder}`,display:"flex",alignItems:"center",justifyContent:"center" }}><Send size={18} color={T.purple}/></div>
+            <div style={{ width:38,height:38,borderRadius:10,background:isEdit?T.orangeBg:T.purpleBg,border:`1px solid ${isEdit?T.orangeBorder:T.purpleBorder}`,display:"flex",alignItems:"center",justifyContent:"center" }}>
+              {isEdit ? <Pencil size={18} color={T.orange}/> : <Send size={18} color={T.purple}/>}
+            </div>
             <div>
-              <div style={{ fontSize:15,fontWeight:700,color:T.textPrimary }}>Nouvelle déclaration CIL</div>
-              <div style={{ fontSize:12,color:T.textMuted }}>Traitement : {traitement?.nom || traitement?.description || `#${traitement?.idTraitement}`}</div>
+              <div style={{ fontSize:15,fontWeight:700,color:T.textPrimary }}>
+                {isEdit ? `Corriger la déclaration #${declaration.idDeclaration}` : "Nouvelle déclaration CIL"}
+              </div>
+              <div style={{ fontSize:12,color:T.textMuted }}>
+                Traitement : {traitement?.nom || traitement?.description || (declaration?.traitementId ? `#${declaration.traitementId}` : "—")}
+              </div>
             </div>
             <button onClick={onClose} style={{ marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:T.textMuted }}><X size={16}/></button>
           </div>
           <StepIndicator etapes={etapes} current={etape}/>
         </div>
 
-        {declaration && etape===0 && (
+        {isEdit && estRejetee(declaration.statut) && etape===0 && (
+          <div style={{ margin:"14px 22px 0",padding:"10px 14px",background:T.redBg,border:`1px solid ${T.redBorder}`,borderRadius:8,fontSize:12,color:T.red,display:"flex",gap:8,alignItems:"center" }}>
+            <AlertCircle size={13}/> Cette déclaration a été rejetée. Corrigez les champs nécessaires puis cliquez sur « Renvoyer » à la dernière étape.
+          </div>
+        )}
+        {!isEdit && declaration && etape===0 && (
           <div style={{ margin:"14px 22px 0",padding:"10px 14px",background:T.yellowBg,border:`1px solid ${T.yellowBorder}`,borderRadius:8,fontSize:12,color:T.yellow,display:"flex",gap:8,alignItems:"center" }}>
             <FileCheck size={13}/> Champs pré-remplis depuis la déclaration existante — tous modifiables.
           </div>
@@ -925,7 +984,14 @@ const ModalDeclaration = ({ traitement, declaration, onClose, onSave, dpoId }) =
             {etape > 0 && <Btn onClick={() => setEtape(e => e-1)}><ChevronLeft size={13}/> Précédent</Btn>}
             {!isLast
               ? <Btn variant="primary" onClick={() => setEtape(e => e+1)}>Suivant <ChevronRight size={13}/></Btn>
-              : <Btn variant="primary" onClick={handleSubmit} disabled={loading}>{loading?<><Spinner/> Soumission…</>:<><Send size={13}/> Soumettre</>}</Btn>
+              : <Btn variant={isEdit?"warning":"primary"} onClick={handleSubmit} disabled={loading}>
+                  {loading
+                    ? <><Spinner color={isEdit?T.yellow:"#fff"}/> {isEdit?"Envoi…":"Soumission…"}</>
+                    : isEdit
+                      ? (estRejetee(declaration.statut) ? <><Send size={13}/> Corriger et renvoyer</> : <><Check size={13}/> Enregistrer</>)
+                      : <><Send size={13}/> Soumettre</>
+                  }
+                </Btn>
             }
           </div>
         </div>
@@ -1033,8 +1099,8 @@ ${traitement ? `<div class="section"><div class="section-title">Traitement assoc
 //  SECTION : TABLEAU DE BORD — sans bandeau workflow
 // ═══════════════════════════════════════════════════════
 const SectionDashboard = ({ sessions, declarations, setSection, dpoInfo }) => {
-  // Déclarations manuelles uniquement
-  const declsManuelles = declarations.filter(d => d.origineDeclaration !== "AUTO" && d.typeDeclaration !== null && d.typeDeclaration !== undefined && d.typeDeclaration !== "");
+  // Déclarations manuelles uniquement (créées par le DPO via "Déclarer")
+  const declsManuelles = declarations.filter(estDeclarationManuelle);
   const actives      = sessions.filter(s => s.statutSession==="EN_COURS");
   const enAttenteDG  = declsManuelles.filter(d => d.statut==="EN_ATTENTE" || d.statut==="EN_ATTENTE_DG");
   const approuvees   = declsManuelles.filter(d => d.statut==="APPROUVEE_DG"||d.statut==="VALIDEE_CIL"||d.statut==="APPROUVEE");
@@ -1226,17 +1292,10 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }
 
   useEffect(() => { load(); }, [load]);
 
-  // Déclarations manuelles uniquement
-  const hasDeclared = (tId) => declarations.some(d =>
-    d.traitementId===tId &&
-    d.origineDeclaration !== "AUTO" &&
-    d.typeDeclaration !== null && d.typeDeclaration !== ""
-  );
-  const getDeclOf = (tId) => declarations.find(d =>
-    d.traitementId===tId &&
-    d.origineDeclaration !== "AUTO" &&
-    d.typeDeclaration !== null && d.typeDeclaration !== ""
-  );
+  // Déclarations manuelles uniquement (créées par le DPO) — celles auto-créées
+  // en BROUILLON avec le traitement ne comptent jamais comme "déjà déclaré".
+  const hasDeclared = (tId) => declarations.some(d => d.traitementId===tId && estDeclarationManuelle(d));
+  const getDeclOf = (tId) => declarations.find(d => d.traitementId===tId && estDeclarationManuelle(d));
 
   const getSessionInfo = (t) => {
     if (t.sessionCollecteId) {
@@ -1260,6 +1319,7 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }
         <ModalDeclaration
           traitement={showDecl}
           declaration={declPrefill}
+          mode="create"
           onClose={() => { setShowDecl(null); setDeclPrefill(null); }}
           onSave={d => setDeclarations(p => [d,...p])}
           dpoId={dpoInfo?.id}
@@ -1376,12 +1436,14 @@ const TraitementCard = ({ t, sessionInfo, hasDeclared, getDeclOf, setShowDecl, s
 // ═══════════════════════════════════════════════════════
 //  SECTION : DÉCLARATIONS — manuelles uniquement
 //  Filtres : En attente DG | Approuvées DG | Rejetées DG
-//  (Vérif. CIL et Validées CIL supprimés)
+//  + Modifier / Corriger et renvoyer une déclaration rejetée
 // ═══════════════════════════════════════════════════════
 const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
   const [filter,      setFilter]      = useState("all");
   const [loading,     setLoading]     = useState(true);
   const [exportingId, setExportingId] = useState(null);
+  const [editTarget,  setEditTarget]  = useState(null);   // { declaration, traitement }
+  const [loadingEditId, setLoadingEditId] = useState(null);
 
   const load = useCallback(async () => {
     if (!dpoInfo?.id) return;
@@ -1390,14 +1452,9 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
       const r = await fetch(`${BASE}/declarations/mes-declarations?dpoId=${dpoInfo.id}`, { headers:authH() });
       if (!r.ok) throw new Error(`Erreur ${r.status}`);
       const all = await r.json();
-      // Uniquement les déclarations créées manuellement par le DPO
-      const manuelles = all.filter(d =>
-        d.typeDeclaration !== null &&
-        d.typeDeclaration !== undefined &&
-        d.typeDeclaration !== "" &&
-        d.origineDeclaration !== "AUTO"
-      );
-      setDeclarations(manuelles);
+      // Le backend filtre déjà sur origineDeclaration === MANUELLE, mais on
+      // applique le filtre côté front aussi par sécurité (défense en profondeur).
+      setDeclarations(all.filter(estDeclarationManuelle));
     } catch(e) { toast.error(e.message); }
     finally { setLoading(false); }
   }, [dpoInfo?.id, setDeclarations]);
@@ -1423,6 +1480,25 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
     setExportingId(null);
   };
 
+  // Ouvre la modale d'édition : récupère le traitement lié pour le contexte
+  // d'affichage (nom, durée de conservation…) puis ouvre ModalDeclaration en mode "edit".
+  const handleEdit = async (decl) => {
+    setLoadingEditId(decl.idDeclaration);
+    let trait = null;
+    if (decl.traitementId) {
+      try {
+        const r = await fetch(`${BASE}/traitements/${decl.traitementId}`, { headers:authH() });
+        if (r.ok) trait = await r.json();
+      } catch {}
+    }
+    setLoadingEditId(null);
+    setEditTarget({ declaration: decl, traitement: trait });
+  };
+
+  const handleEditSaved = (updated) => {
+    setDeclarations(prev => prev.map(d => d.idDeclaration===updated.idDeclaration ? updated : d));
+  };
+
   const statIcon = (statut) => {
     if (statut?.includes("APPROUVEE")||statut==="VALIDEE_CIL") return <CheckCircle2 size={16} color={T.green}/>;
     if (statut?.includes("REJETEE")) return <XCircle size={16} color={T.red}/>;
@@ -1434,11 +1510,22 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
   const stats = [
     { label:"En attente DG", value:declarations.filter(d=>d.statut==="EN_ATTENTE"||d.statut==="EN_ATTENTE_DG").length, color:T.yellow, id:"EN_ATTENTE" },
     { label:"Approuvées DG", value:declarations.filter(d=>d.statut==="APPROUVEE_DG"||d.statut==="APPROUVEE").length,   color:T.green,  id:"APPROUVEE" },
-    { label:"Rejetées DG",   value:declarations.filter(d=>d.statut==="REJETEE_DG"||d.statut==="REJETEE").length,       color:T.red,    id:"REJETEE" },
+    { label:"Rejetées",      value:declarations.filter(d=>d.statut?.includes("REJETEE")).length,                       color:T.red,    id:"REJETEE" },
   ];
 
   return (
     <div className="slide-in">
+      {editTarget && (
+        <ModalDeclaration
+          traitement={editTarget.traitement}
+          declaration={editTarget.declaration}
+          mode="edit"
+          onClose={() => setEditTarget(null)}
+          onSave={handleEditSaved}
+          dpoId={dpoInfo?.id}
+        />
+      )}
+
       <PageHeader title="Mes déclarations" subtitle={`${declarations.length} déclaration(s) manuelle(s) soumises`}>
         <select value={filter} onChange={e=>setFilter(e.target.value)} style={{ background:T.cardBg,border:`1px solid ${T.cardBorder}`,color:T.textSecondary,padding:"7px 12px",borderRadius:8,fontSize:13,fontFamily:"inherit",outline:"none" }}>
           <option value="all">Tous les statuts</option>
@@ -1488,8 +1575,28 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
                         ))}
                       </div>
                       {d.responsableDeclaration && <div style={{ fontSize:12,color:T.textMuted }}>Responsable : {d.responsableDeclaration}{d.fonctionResponsable?` · ${d.fonctionResponsable}`:""}</div>}
+                      {estRejetee(d.statut) && (
+                        <div style={{ marginTop:8,padding:"7px 10px",background:T.redBg,border:`1px solid ${T.redBorder}`,borderRadius:7,fontSize:11,color:T.red,display:"flex",alignItems:"center",gap:6 }}>
+                          <AlertCircle size={12}/> Rejetée — cliquez sur « Corriger et renvoyer » pour la soumettre à nouveau.
+                        </div>
+                      )}
                     </div>
                     <div style={{ display:"flex",gap:6,marginLeft:16,flexShrink:0 }}>
+                      {estModifiable(d.statut) && (
+                        <Btn
+                          variant={estRejetee(d.statut) ? "warning" : "outline"}
+                          onClick={() => handleEdit(d)}
+                          disabled={loadingEditId===d.idDeclaration}
+                          style={{ fontSize:11,padding:"5px 10px" }}
+                        >
+                          {loadingEditId===d.idDeclaration
+                            ? <><Spinner color={T.yellow} size={11}/> …</>
+                            : estRejetee(d.statut)
+                              ? <><Send size={12}/> Corriger et renvoyer</>
+                              : <><Pencil size={12}/> Modifier</>
+                          }
+                        </Btn>
+                      )}
                       <Btn onClick={() => handleExport(d)} disabled={exportingId===d.idDeclaration} style={{ fontSize:11,padding:"5px 10px" }}>
                         {exportingId===d.idDeclaration?<><Spinner color={T.textSecondary} size={11}/> Export…</>:<><Download size={12}/> PDF</>}
                       </Btn>
@@ -1513,9 +1620,7 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
   const [loading, setLoading] = useState({});
   const setLoad = (k,v) => setLoading(l => ({...l,[k]:v}));
 
-  const declsManuelles = declarations.filter(d =>
-    d.typeDeclaration !== null && d.typeDeclaration !== "" && d.origineDeclaration !== "AUTO"
-  );
+  const declsManuelles = declarations.filter(estDeclarationManuelle);
 
   const exportCSV = (filename, headers, rows) => {
     const content = [headers.join(","), ...rows].join("\n");
@@ -1683,9 +1788,7 @@ export default function Tb_Dpo() {
   }, [dpoInfo.id]);
 
   const declEnAttente = declarations.filter(d =>
-    (d.statut==="EN_ATTENTE" || d.statut==="EN_ATTENTE_DG") &&
-    d.typeDeclaration !== null && d.typeDeclaration !== "" &&
-    d.origineDeclaration !== "AUTO"
+    (d.statut==="EN_ATTENTE" || d.statut==="EN_ATTENTE_DG") && estDeclarationManuelle(d)
   ).length;
 
   return (
