@@ -10,6 +10,7 @@ import Tb_Dpo from './pages/Tb_Dpo'
 import Tb_Cil from './pages/Tb_Cil'
 import Tb_Usager from './pages/Tb_Usager'
 import Tb_utilisateur_Metier from './pages/Tb_utilisateur_Metier'
+import ReinitialiserMotDePasse from './pages/ReinitialiserMotDePasse'
 
 import { Toaster } from 'react-hot-toast';
 
@@ -30,11 +31,9 @@ function App() {
         <Route path="/tableau-de-bord/usager" element={<Tb_Usager />} />
         <Route path="/tableau-de-bord/utilisateur-metier" element={<Tb_utilisateur_Metier />} />
         <Route path="/compte-inactif" element={<Compteinactif />} />
+        <Route path="/reinitialiser-mot-de-passe" element={<ReinitialiserMotDePasse />} />
       </Routes>
     </BrowserRouter>
-      // <div className='text-5xl '>
-      //       <Inscription/>
-      // </div>
   )
 }
 

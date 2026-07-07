@@ -173,24 +173,25 @@ const SectionTitle = ({ icon: Icon, color, label }) => (
 const PanneauNotifications = ({ userId, onClose, onCountChange }) => {
   const [notifs, setNotifs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const ref = useRef();
 
   useEffect(() => {
     const init = async () => {
-      if (!userId) return;
+      if (!userId) { setLoading(false); return; }
       try {
         const r = await fetch(`${BASE}/notifications/${userId}`, { headers: authH() });
-        if (!r.ok) return;
+        if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
         const data = await r.json();
         const sorted = [...data].sort((a,b) => b.idNotification - a.idNotification);
         setNotifs(sorted);
         const hasUnread = sorted.some(n => n.statut === "NON_LUE");
         if (hasUnread) {
-          await fetch(`${BASE}/notifications/${userId}/lire-tout`, { method:"PATCH", headers:authH() });
-          setNotifs(ns => ns.map(n => ({ ...n, statut:"LUE" })));
+          const rl = await fetch(`${BASE}/notifications/${userId}/lire-tout`, { method:"PATCH", headers:authH() });
+          if (rl.ok) setNotifs(ns => ns.map(n => ({ ...n, statut:"LUE" })));
         }
         onCountChange(0);
-      } catch(e) { console.error(e); }
+      } catch(e) { setError(e.message); }
       finally { setLoading(false); }
     };
     init();
@@ -202,7 +203,7 @@ const PanneauNotifications = ({ userId, onClose, onCountChange }) => {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const typeColor = { ALERTE:T.red, RAPPEL:T.yellow, CONFIRMATION:T.green, RELANCE:T.orange, DEMANDE_MODIFICATION:T.blue, PLAINTE:T.purple };
+  const typeColor = { ALERTE:T.red, RAPPEL:T.yellow, CONFIRMATION:T.green, RELANCE:T.orange, DEMANDE_MODIFICATION:T.blue, DEMANDE_SUPPRESSION:T.blue, PLAINTE:T.purple };
 
   return (
     <div ref={ref} style={{ position:"absolute",top:"calc(100% + 10px)",right:0,width:380,background:T.cardBg,border:`1px solid ${T.cardBorder}`,borderRadius:14,boxShadow:"0 20px 50px rgba(0,0,0,0.22)",zIndex:300,overflow:"hidden" }}>
@@ -212,8 +213,9 @@ const PanneauNotifications = ({ userId, onClose, onCountChange }) => {
       </div>
       <div style={{ maxHeight:420,overflowY:"auto" }}>
         {loading && <div style={{ padding:32,textAlign:"center",color:T.textMuted,fontSize:13 }}>Chargement…</div>}
-        {!loading && notifs.length===0 && <div style={{ padding:40,textAlign:"center",color:T.textMuted,fontSize:13 }}>Aucune notification</div>}
-        {!loading && notifs.map((n,i) => {
+        {!loading && error && <div style={{ padding:24,textAlign:"center",color:T.red,fontSize:12,display:"flex",flexDirection:"column",gap:8,alignItems:"center" }}><AlertCircle size={16}/>{error}</div>}
+        {!loading && !error && notifs.length===0 && <div style={{ padding:40,textAlign:"center",color:T.textMuted,fontSize:13 }}>Aucune notification</div>}
+        {!loading && !error && notifs.map((n,i) => {
           const col = typeColor[n.typeNotification] || T.textMuted;
           return (
             <div key={n.idNotification} style={{ padding:"12px 16px",borderBottom:i<notifs.length-1?`1px solid ${T.cardBorder}`:"none",display:"flex",gap:10,alignItems:"flex-start" }}>
@@ -311,18 +313,18 @@ const Sidebar = ({ active, setActive, collapsed, dpoInfo, declEnAttente }) => {
 //  MODALE : CRÉER SESSION
 // ═══════════════════════════════════════════════════════
 const ModalCreerSession = ({ onClose, onSave }) => {
-  const [f, setF] = useState({ lieu:"", typeCollecte:"EN_LIGNE", description:"", dateDebut:"" });
+  const [f, setF] = useState({ nomSession:"", lieu:"", typeCollecte:"EN_LIGNE", description:"", dateDebut:"" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const upd = (k,v) => setF(p => ({...p,[k]:v}));
-  const valid = f.lieu.trim();
+  const valid = f.nomSession.trim() && f.lieu.trim();
   const minDate = new Date().toISOString().split("T")[0];
 
   const handleSave = async () => {
     if (!valid) return;
     setLoading(true); setError("");
     try {
-      const payload = { lieu:f.lieu, typeCollecte:f.typeCollecte, description:f.description, dateDebut:f.dateDebut ? new Date(f.dateDebut+"T00:00:00").toISOString() : new Date().toISOString(), dateFin:null };
+      const payload = { nomSession:f.nomSession, lieu:f.lieu, typeCollecte:f.typeCollecte, description:f.description, dateDebut:f.dateDebut ? new Date(f.dateDebut+"T00:00:00").toISOString() : new Date().toISOString(), dateFin:null };
       const r = await fetch(`${BASE}/sessions`, { method:"POST", headers:authH(), body:JSON.stringify(payload) });
       if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
       const data = await r.json();
@@ -341,6 +343,7 @@ const ModalCreerSession = ({ onClose, onSave }) => {
           <button onClick={onClose} style={{ marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:T.textMuted }}><X size={16}/></button>
         </div>
         <div style={{ padding:"20px 22px",display:"flex",flexDirection:"column",gap:14 }}>
+          <Inp label="Nom de la session" value={f.nomSession} onChange={e=>upd("nomSession",e.target.value)} placeholder="Ex: Collecte RH — Juillet 2026" required/>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:14 }}>
             <Inp label="Lieu" value={f.lieu} onChange={e=>upd("lieu",e.target.value)} placeholder="Ex: Bobo-Dioulasso" required/>
             <Sel label="Type de collecte" value={f.typeCollecte} onChange={e=>upd("typeCollecte",e.target.value)}>
@@ -365,6 +368,74 @@ const ModalCreerSession = ({ onClose, onSave }) => {
 };
 
 // ═══════════════════════════════════════════════════════
+//  MODALE : MODIFIER SESSION
+// ═══════════════════════════════════════════════════════
+const ModalModifierSession = ({ session, onClose, onSave }) => {
+  const toDateInput = (iso) => iso ? iso.split("T")[0] : "";
+  const [f, setF] = useState({
+    nomSession: session.nomSession || "",
+    lieu: session.lieu || "",
+    typeCollecte: session.typeCollecte || "EN_LIGNE",
+    description: session.description || "",
+    dateDebut: toDateInput(session.dateDebut),
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const upd = (k,v) => setF(p => ({...p,[k]:v}));
+  const valid = f.nomSession.trim() && f.lieu.trim();
+
+  const handleSave = async () => {
+    if (!valid) return;
+    setLoading(true); setError("");
+    try {
+      const payload = {
+        nomSession:f.nomSession, lieu:f.lieu, typeCollecte:f.typeCollecte, description:f.description,
+        dateDebut: f.dateDebut ? new Date(f.dateDebut+"T00:00:00").toISOString() : session.dateDebut,
+        dateFin: session.dateFin || null,
+      };
+      const r = await fetch(`${BASE}/sessions/${session.idSession}`, { method:"PUT", headers:authH(), body:JSON.stringify(payload) });
+      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
+      const data = await r.json();
+      onSave(data); onClose(); toast.success("Session mise à jour !");
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:900,backdropFilter:"blur(2px)" }}/>
+      <div style={{ position:"fixed",top:"50%",left:"50%",transform:"translate(-50%,-50%)",zIndex:901,width:500,maxHeight:"90vh",overflowY:"auto",background:T.cardBg,borderRadius:16,boxShadow:"0 24px 60px rgba(0,0,0,0.2)",border:`1px solid ${T.cardBorder}` }}>
+        <div style={{ padding:"20px 22px 16px",borderBottom:`1px solid ${T.cardBorder}`,display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,background:T.cardBg,zIndex:1 }}>
+          <div style={{ width:38,height:38,borderRadius:10,background:T.blueBg,border:`1px solid ${T.blueBorder}`,display:"flex",alignItems:"center",justifyContent:"center" }}><Pencil size={17} color={T.blue}/></div>
+          <div><div style={{ fontSize:15,fontWeight:700,color:T.textPrimary }}>Modifier la session #{session.idSession}</div><div style={{ fontSize:12,color:T.textMuted }}>Les traitements liés ne sont pas affectés</div></div>
+          <button onClick={onClose} style={{ marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:T.textMuted }}><X size={16}/></button>
+        </div>
+        <div style={{ padding:"20px 22px",display:"flex",flexDirection:"column",gap:14 }}>
+          <Inp label="Nom de la session" value={f.nomSession} onChange={e=>upd("nomSession",e.target.value)} placeholder="Ex: Collecte RH — Juillet 2026" required/>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:14 }}>
+            <Inp label="Lieu" value={f.lieu} onChange={e=>upd("lieu",e.target.value)} placeholder="Ex: Bobo-Dioulasso" required/>
+            <Sel label="Type de collecte" value={f.typeCollecte} onChange={e=>upd("typeCollecte",e.target.value)}>
+              <option value="EN_LIGNE">En ligne</option>
+              <option value="TERRAIN">Terrain</option>
+            </Sel>
+          </div>
+          <div>
+            <label style={{ display:"block",fontSize:12,fontWeight:600,color:T.textSecondary,marginBottom:6 }}>Date de début</label>
+            <input type="date" value={f.dateDebut} onChange={e=>upd("dateDebut",e.target.value)} style={{ width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${T.cardBorder}`,fontSize:13,color:T.textPrimary,background:T.grayBg,fontFamily:"inherit",outline:"none" }}/>
+          </div>
+          <Inp label="Description" value={f.description} onChange={e=>upd("description",e.target.value)} placeholder="Objectif de la session" rows={3}/>
+          {error && <div style={{ padding:"10px 12px",background:T.redBg,border:`1px solid ${T.redBorder}`,borderRadius:8,fontSize:12,color:T.red,display:"flex",gap:8,alignItems:"center" }}><AlertCircle size={13}/>{error}</div>}
+        </div>
+        <div style={{ padding:"14px 22px 20px",display:"flex",justifyContent:"flex-end",gap:10,borderTop:`1px solid ${T.cardBorder}` }}>
+          <Btn onClick={onClose}>Annuler</Btn>
+          <Btn variant="primary" onClick={handleSave} disabled={loading||!valid}>{loading?<><Spinner/> Enregistrement…</>:<><Check size={13}/> Enregistrer</>}</Btn>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// ═══════════════════════════════════════════════════════
 //  MODALE : CLÔTURER SESSION
 // ═══════════════════════════════════════════════════════
 const ModalCloture = ({ session, onClose, onConfirm }) => {
@@ -373,7 +444,7 @@ const ModalCloture = ({ session, onClose, onConfirm }) => {
     setLoading(true);
     try {
       const r = await fetch(`${BASE}/sessions/${session.idSession}/statut?valeur=TERMINEE`, { method:"PATCH", headers:authH() });
-      if (!r.ok) throw new Error(`Erreur ${r.status}`);
+      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
       const data = await r.json();
       onConfirm(data); onClose(); toast.success("Session clôturée !");
     } catch(e) { toast.error(e.message); }
@@ -386,7 +457,7 @@ const ModalCloture = ({ session, onClose, onConfirm }) => {
         <div style={{ padding:"24px 24px 0" }}>
           <div style={{ width:48,height:48,borderRadius:"50%",background:T.yellowBg,border:`2px solid ${T.yellowBorder}`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:16 }}><StopCircle size={24} color={T.yellow}/></div>
           <div style={{ fontSize:16,fontWeight:700,color:T.textPrimary,marginBottom:8 }}>Clôturer la session</div>
-          <div style={{ fontSize:13,color:T.textSecondary,lineHeight:1.65,marginBottom:16 }}>Voulez-vous vraiment clôturer la session <strong>#{session.idSession} — {session.lieu}</strong> ? Cette action est <strong style={{ color:T.red }}>irréversible</strong>.</div>
+          <div style={{ fontSize:13,color:T.textSecondary,lineHeight:1.65,marginBottom:16 }}>Voulez-vous vraiment clôturer la session <strong>#{session.idSession} — {session.nomSession || session.lieu}</strong> ? Cette action est <strong style={{ color:T.red }}>irréversible</strong>.</div>
           <div style={{ padding:"10px 14px",background:T.yellowBg,border:`1px solid ${T.yellowBorder}`,borderRadius:8,fontSize:12,color:T.yellow,display:"flex",gap:8,alignItems:"flex-start",marginBottom:20 }}>
             <AlertCircle size={14} style={{ flexShrink:0,marginTop:1 }}/><span>Assurez-vous que tous les traitements sont terminés avant de clôturer.</span>
           </div>
@@ -394,6 +465,74 @@ const ModalCloture = ({ session, onClose, onConfirm }) => {
         <div style={{ padding:"0 24px 24px",display:"flex",justifyContent:"flex-end",gap:10 }}>
           <Btn onClick={onClose}>Annuler</Btn>
           <Btn variant="warning" onClick={handleConfirm} disabled={loading}>{loading?<><Spinner color={T.yellow}/> Clôture…</>:<><StopCircle size={13}/> Confirmer la clôture</>}</Btn>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// ═══════════════════════════════════════════════════════
+//  MODALE : DONNÉES D'UN TRAITEMENT
+// ═══════════════════════════════════════════════════════
+const ModalDonnees = ({ traitement, onClose }) => {
+  const [donnees, setDonnees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true); setError("");
+      try {
+        const r = await fetch(`${BASE}/donnees/par-traitement?traitementId=${traitement.idTraitement}`, { headers:authH() });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
+        setDonnees(await r.json());
+      } catch(e) { setError(e.message); }
+      finally { setLoading(false); }
+    };
+    load();
+  }, [traitement.idTraitement]);
+
+  // Colonnes dynamiques à partir des clés présentes dans les données
+  const columns = (() => {
+    const keys = new Set();
+    donnees.forEach(d => Object.keys(d).forEach(k => { if (k!=="idDonnee" && k!=="traitementId") keys.add(k); }));
+    return Array.from(keys);
+  })();
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:900,backdropFilter:"blur(2px)" }}/>
+      <div style={{ position:"fixed",top:"50%",left:"50%",transform:"translate(-50%,-50%)",zIndex:901,width:"min(920px,92vw)",maxHeight:"88vh",overflow:"hidden",display:"flex",flexDirection:"column",background:T.cardBg,borderRadius:16,boxShadow:"0 24px 60px rgba(0,0,0,0.2)",border:`1px solid ${T.cardBorder}` }}>
+        <div style={{ padding:"18px 22px",borderBottom:`1px solid ${T.cardBorder}`,display:"flex",alignItems:"center",gap:12 }}>
+          <div style={{ width:38,height:38,borderRadius:10,background:T.tealBg,border:`1px solid ${T.tealBorder}`,display:"flex",alignItems:"center",justifyContent:"center" }}><Database size={18} color={T.teal}/></div>
+          <div>
+            <div style={{ fontSize:15,fontWeight:700,color:T.textPrimary }}>Données du traitement</div>
+            <div style={{ fontSize:12,color:T.textMuted }}>{traitement.nom || traitement.description || `#${traitement.idTraitement}`} — {donnees.length} entrée(s)</div>
+          </div>
+          <button onClick={onClose} style={{ marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:T.textMuted }}><X size={16}/></button>
+        </div>
+        <div style={{ overflow:"auto",flex:1 }}>
+          {loading && <div style={{ padding:40,textAlign:"center",color:T.textMuted,fontSize:13 }}>Chargement…</div>}
+          {!loading && error && <div style={{ padding:24,color:T.red,fontSize:13,display:"flex",gap:8,alignItems:"center" }}><AlertCircle size={14}/>{error}</div>}
+          {!loading && !error && donnees.length===0 && <div style={{ padding:40,textAlign:"center",color:T.textMuted,fontSize:13,fontStyle:"italic" }}>Aucune donnée enregistrée pour ce traitement.</div>}
+          {!loading && !error && donnees.length>0 && (
+            <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
+              <thead>
+                <tr style={{ background:T.grayBg,position:"sticky",top:0 }}>
+                  <th style={{ textAlign:"left",padding:"9px 14px",color:T.textMuted,fontWeight:700,textTransform:"uppercase",fontSize:10,letterSpacing:"0.06em" }}>#</th>
+                  {columns.map(c => <th key={c} style={{ textAlign:"left",padding:"9px 14px",color:T.textMuted,fontWeight:700,textTransform:"uppercase",fontSize:10,letterSpacing:"0.06em",whiteSpace:"nowrap" }}>{c}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {donnees.map((d,i) => (
+                  <tr key={d.idDonnee||i} style={{ borderTop:`1px solid ${T.cardBorder}` }}>
+                    <td style={{ padding:"9px 14px",color:T.textMuted,fontFamily:"'DM Mono',monospace" }}>{i+1}</td>
+                    {columns.map(c => <td key={c} style={{ padding:"9px 14px",color:T.textPrimary,whiteSpace:"nowrap" }}>{String(d[c] ?? "—")}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </>
@@ -702,7 +841,7 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
     fonctionResponsable:     declaration?.fonctionResponsable     || "",
     serviceResponsable:      declaration?.serviceResponsable      || "",
     dateSignature:           declaration?.dateSignature           || "",
-    lieuSignature:           declaration?.lieuSignature           || "",
+    lieuSignature:           declaration?.lieuSignature            || "",
     // Normale
     denominationTraitement:  declaration?.denominationTraitement  || "",
     finaliteTraitement:      declaration?.finaliteTraitement      || traitement?.description || "",
@@ -770,6 +909,7 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const upd = (k,v) => setF(p => ({...p,[k]:v}));
+  const isEdit = mode === "edit";
 
   const typeMap = { NORMALE:ETAPES_NORMALE, COLLECTE_SITE:ETAPES_SITE, VIDEO_SURVEILLANCE:ETAPES_VIDEO, AUTORISATION:ETAPES_AUTO };
   const etapes = typeMap[f.typeDeclaration] || ETAPES_NORMALE;
@@ -1143,7 +1283,7 @@ const SectionDashboard = ({ sessions, declarations, setSection, dpoInfo }) => {
             {actives.slice(0,4).map((s,i) => (
               <div key={s.idSession} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 18px",borderBottom:i<Math.min(actives.length,4)-1?`1px solid ${T.grayBg}`:"none" }}>
                 <div>
-                  <div style={{ fontSize:13,fontWeight:600,color:T.textPrimary }}>Session #{s.idSession} — {s.lieu}</div>
+                  <div style={{ fontSize:13,fontWeight:600,color:T.textPrimary }}>Session #{s.idSession} — {s.nomSession || s.lieu}</div>
                   <div style={{ fontSize:11,color:T.textMuted,marginTop:2 }}>{s.nombreTraitements} traitement(s) · {s.typeCollecte}</div>
                 </div>
                 <Badge type={s.statutSession}/>
@@ -1178,11 +1318,12 @@ const SectionDashboard = ({ sessions, declarations, setSection, dpoInfo }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : SESSIONS — icônes Lucide au lieu d'emojis
+//  SECTION : SESSIONS
 // ═══════════════════════════════════════════════════════
 const SectionSessions = ({ sessions, setSessions, setSection, setSelectedSession }) => {
   const [showCreate, setShowCreate] = useState(false);
   const [cloture,    setCloture]    = useState(null);
+  const [editSession,setEditSession]= useState(null);
   const [filter,     setFilter]     = useState("all");
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState("");
@@ -1191,7 +1332,7 @@ const SectionSessions = ({ sessions, setSessions, setSection, setSelectedSession
     setLoading(true); setError("");
     try {
       const r = await fetch(`${BASE}/sessions`, { headers:authH() });
-      if (!r.ok) throw new Error(`Erreur ${r.status}`);
+      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
       setSessions(await r.json());
     } catch(e) { setError(e.message); }
     finally { setLoading(false); }
@@ -1205,6 +1346,7 @@ const SectionSessions = ({ sessions, setSessions, setSection, setSelectedSession
     <div className="slide-in">
       {showCreate && <ModalCreerSession onClose={() => setShowCreate(false)} onSave={s => { setSessions(p => [s,...p]); }}/>}
       {cloture && <ModalCloture session={cloture} onClose={() => setCloture(null)} onConfirm={updated => setSessions(p => p.map(s => s.idSession===updated.idSession?updated:s))}/>}
+      {editSession && <ModalModifierSession session={editSession} onClose={() => setEditSession(null)} onSave={updated => setSessions(p => p.map(s => s.idSession===updated.idSession?updated:s))}/>}
       <PageHeader title="Sessions de collecte" subtitle={`${sessions.filter(s=>s.statutSession==="EN_COURS").length} active(s) sur ${sessions.length}`}>
         <select value={filter} onChange={e=>setFilter(e.target.value)} style={{ background:T.cardBg,border:`1px solid ${T.cardBorder}`,color:T.textSecondary,padding:"7px 12px",borderRadius:8,fontSize:13,fontFamily:"inherit",outline:"none" }}>
           <option value="all">Tous les statuts</option>
@@ -1227,11 +1369,11 @@ const SectionSessions = ({ sessions, setSessions, setSection, setSelectedSession
                   <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:8 }}>
                     <div>
                       <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:6 }}>
-                        <span style={{ fontSize:14,fontWeight:700,color:T.textPrimary }}>Session #{s.idSession} — {s.lieu}</span>
+                        <span style={{ fontSize:14,fontWeight:700,color:T.textPrimary }}>{s.nomSession || `Session #${s.idSession}`}</span>
                         <Badge type={s.statutSession}/><Badge type={s.typeCollecte}/>
                       </div>
-                      {/* Icônes Lucide à la place des emojis */}
                       <div style={{ display:"flex",gap:18,fontSize:12,color:T.textMuted,flexWrap:"wrap" }}>
+                        <span style={{ display:"flex",alignItems:"center",gap:5 }}><FolderOpen size={12} color={T.textMuted}/>{s.lieu||"—"}</span>
                         <span style={{ display:"flex",alignItems:"center",gap:5 }}>
                           <Calendar size={12} color={T.textMuted}/>
                           {s.dateDebut?.split("T")[0]||"—"}{s.dateFin?` → ${s.dateFin.split("T")[0]}`:""}</span>
@@ -1248,6 +1390,7 @@ const SectionSessions = ({ sessions, setSessions, setSection, setSelectedSession
                   </div>
                   <div style={{ display:"flex",gap:8,paddingTop:10,borderTop:`1px solid ${T.cardBorder}` }}>
                     <Btn onClick={() => { setSelectedSession(s.idSession); setSection("traitements"); }} style={{ fontSize:12,padding:"6px 12px" }}><Eye size={12}/> Voir traitements</Btn>
+                    <Btn onClick={() => setEditSession(s)} style={{ fontSize:12,padding:"6px 12px" }}><Pencil size={12}/> Modifier</Btn>
                     {s.statutSession==="EN_COURS" && <Btn variant="warning" onClick={() => setCloture(s)} style={{ fontSize:12,padding:"6px 12px" }}><StopCircle size={12}/> Clôturer</Btn>}
                     {s.statutSession==="TERMINEE" && <span style={{ fontSize:12,color:T.green,display:"flex",alignItems:"center",gap:5,padding:"6px 0" }}><CheckCircle2 size={13}/> Clôturée le {s.dateFin?.split("T")[0]}</span>}
                   </div>
@@ -1271,6 +1414,7 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }
   const [error,         setError]         = useState("");
   const [showDecl,      setShowDecl]      = useState(null);
   const [declPrefill,   setDeclPrefill]   = useState(null);
+  const [showDonnees,   setShowDonnees]   = useState(null);
   const [filterSession, setFilterSession] = useState("all");
   const [search,        setSearch]        = useState("");
 
@@ -1280,7 +1424,7 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }
       const r = await fetch(`${BASE}/traitements/envoyes-dpo`, { headers:authH() });
       if (!r.ok) {
         const r2 = await fetch(`${BASE}/traitements`, { headers:authH() });
-        if (!r2.ok) throw new Error(`Erreur ${r2.status}`);
+        if (!r2.ok) { const e = await r2.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r2.status}`); }
         const all = await r2.json();
         setTraitements(all.filter(t => t.envoyeAuDpo === true));
       } else {
@@ -1300,7 +1444,7 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }
   const getSessionInfo = (t) => {
     if (t.sessionCollecteId) {
       const sess = sessions.find(s => s.idSession === t.sessionCollecteId);
-      return sess ? { id:sess.idSession, lieu:sess.lieu, statut:sess.statutSession } : { id:t.sessionCollecteId, lieu:"—", statut:"—" };
+      return sess ? { id:sess.idSession, lieu:sess.nomSession || sess.lieu, statut:sess.statutSession } : { id:t.sessionCollecteId, lieu:"—", statut:"—" };
     }
     return null;
   };
@@ -1325,13 +1469,14 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }
           dpoId={dpoInfo?.id}
         />
       )}
+      {showDonnees && <ModalDonnees traitement={showDonnees} onClose={() => setShowDonnees(null)}/>}
       <PageHeader title="Traitements reçus" subtitle={`${traitements.length} traitement(s) envoyé(s) au DPO — toutes sessions`}>
         <div style={{ display:"flex",alignItems:"center",gap:8 }}>
           <input type="text" placeholder="Rechercher…" value={search} onChange={e=>setSearch(e.target.value)}
             style={{ padding:"7px 12px",borderRadius:8,border:`1px solid ${T.cardBorder}`,fontSize:13,color:T.textPrimary,background:T.cardBg,outline:"none",fontFamily:"inherit",width:180 }}/>
           <select value={filterSession} onChange={e=>setFilterSession(e.target.value)} style={{ padding:"7px 12px",borderRadius:8,border:`1px solid ${T.cardBorder}`,fontSize:13,color:T.textPrimary,background:T.cardBg,fontFamily:"inherit",outline:"none" }}>
             <option value="all">Toutes les sessions</option>
-            {sessions.map(s => <option key={s.idSession} value={String(s.idSession)}>#{s.idSession} — {s.lieu}</option>)}
+            {sessions.map(s => <option key={s.idSession} value={String(s.idSession)}>#{s.idSession} — {s.nomSession || s.lieu}</option>)}
           </select>
         </div>
         <Btn variant="outline" onClick={load}><RefreshCw size={13}/> Rafraîchir</Btn>
@@ -1348,7 +1493,7 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }
       {!loading && !error && filtered.length > 0 && (
         filterSession !== "all" ? (
           <div style={{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:14 }}>
-            {filtered.map(t => <TraitementCard key={t.idTraitement} t={t} sessionInfo={getSessionInfo(t)} hasDeclared={hasDeclared} getDeclOf={getDeclOf} setShowDecl={setShowDecl} setDeclPrefill={setDeclPrefill}/>)}
+            {filtered.map(t => <TraitementCard key={t.idTraitement} t={t} sessionInfo={getSessionInfo(t)} hasDeclared={hasDeclared} getDeclOf={getDeclOf} setShowDecl={setShowDecl} setDeclPrefill={setDeclPrefill} setShowDonnees={setShowDonnees}/>)}
           </div>
         ) : (
           <div style={{ display:"flex",flexDirection:"column",gap:24 }}>
@@ -1366,7 +1511,7 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }
                     <span style={{ fontSize:11,color:T.textMuted,marginLeft:"auto" }}>{sessTraitements.length} traitement(s)</span>
                   </div>
                   <div style={{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:14 }}>
-                    {sessTraitements.map(t => <TraitementCard key={t.idTraitement} t={t} sessionInfo={sessInfo} hasDeclared={hasDeclared} getDeclOf={getDeclOf} setShowDecl={setShowDecl} setDeclPrefill={setDeclPrefill}/>)}
+                    {sessTraitements.map(t => <TraitementCard key={t.idTraitement} t={t} sessionInfo={sessInfo} hasDeclared={hasDeclared} getDeclOf={getDeclOf} setShowDecl={setShowDecl} setDeclPrefill={setDeclPrefill} setShowDonnees={setShowDonnees}/>)}
                   </div>
                 </div>
               );
@@ -1381,7 +1526,7 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }
   );
 };
 
-const TraitementCard = ({ t, sessionInfo, hasDeclared, getDeclOf, setShowDecl, setDeclPrefill }) => {
+const TraitementCard = ({ t, sessionInfo, hasDeclared, getDeclOf, setShowDecl, setDeclPrefill, setShowDonnees }) => {
   const declared = hasDeclared(t.idTraitement);
   const decl = getDeclOf(t.idTraitement);
   return (
@@ -1417,9 +1562,10 @@ const TraitementCard = ({ t, sessionInfo, hasDeclared, getDeclOf, setShowDecl, s
         ))}
       </div>
       {t.envoyeAuDpo && <div style={{ fontSize:11,color:T.green,marginBottom:8,display:"flex",alignItems:"center",gap:4 }}><CheckCircle2 size={11}/> Envoyé au DPO le {t.dateEnvoiDpo?.split("T")[0]}</div>}
-      <div style={{ display:"flex",alignItems:"center",gap:8,borderTop:`1px solid ${T.cardBorder}`,paddingTop:10 }}>
+      <div style={{ display:"flex",alignItems:"center",gap:8,borderTop:`1px solid ${T.cardBorder}`,paddingTop:10,flexWrap:"wrap" }}>
         {declared && decl && <Badge type={decl.statut}/>}
         <div style={{ flex:1 }}/>
+        <Btn onClick={() => setShowDonnees(t)} style={{ fontSize:11,padding:"5px 10px" }}><Database size={12}/> Données</Btn>
         {!declared ? (
           <Btn variant="primary" onClick={() => { setShowDecl(t); setDeclPrefill(null); }} style={{ fontSize:11,padding:"5px 12px" }}><Send size={12}/> Déclarer</Btn>
         ) : (
@@ -1450,7 +1596,7 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
     setLoading(true);
     try {
       const r = await fetch(`${BASE}/declarations/mes-declarations?dpoId=${dpoInfo.id}`, { headers:authH() });
-      if (!r.ok) throw new Error(`Erreur ${r.status}`);
+      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
       const all = await r.json();
       // Le backend filtre déjà sur origineDeclaration === MANUELLE, mais on
       // applique le filtre côté front aussi par sécurité (défense en profondeur).
@@ -1634,8 +1780,8 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
     setLoad("sessions",true);
     await new Promise(r=>setTimeout(r,400));
     exportCSV(`sessions_dpo_${new Date().toISOString().slice(0,10)}.csv`,
-      ["ID","Lieu","Type","Statut","Date début","Date fin","Traitements","DPO"],
-      sessions.map(s => `${s.idSession},"${s.lieu}","${s.typeCollecte}","${s.statutSession}","${s.dateDebut?.split("T")[0]||""}","${s.dateFin?.split("T")[0]||""}",${s.nombreTraitements},"${s.dpoNomComplet||""}"`)
+      ["ID","Nom","Lieu","Type","Statut","Date début","Date fin","Traitements","DPO"],
+      sessions.map(s => `${s.idSession},"${s.nomSession||""}","${s.lieu}","${s.typeCollecte}","${s.statutSession}","${s.dateDebut?.split("T")[0]||""}","${s.dateFin?.split("T")[0]||""}",${s.nombreTraitements},"${s.dpoNomComplet||""}"`)
     );
     setLoad("sessions",false);
     toast.success("Export sessions généré");
@@ -1714,7 +1860,6 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
             <div style={{ width:46,height:46,borderRadius:12,background:c.bg,display:"flex",alignItems:"center",justifyContent:"center",color:c.color,marginBottom:14 }}><c.Icon size={20} strokeWidth={1.6}/></div>
             <div style={{ fontSize:14,fontWeight:700,color:T.textPrimary,marginBottom:5 }}>{c.title}</div>
             <div style={{ fontSize:12,color:T.textSecondary,marginBottom:18,lineHeight:1.55 }}>{c.desc}</div>
-            {/* Bouton coloré selon le thème de la carte */}
             <button
               onClick={c.action}
               disabled={!!loading[c.key]}
