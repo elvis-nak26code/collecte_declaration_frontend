@@ -9,12 +9,11 @@ import {
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
-// NOTE: SectionRequests affiche la liste complète des demandes d'accès.
-// Ce composant est externe (../../components/SectionRequests/index.jsx) et n'a pas
-// été fourni ici. Il faut y appliquer le même filtre que dans ce fichier :
-//   const demandesFiltrees = data.filter(d => d.typeUtilisateur !== 'Usager');
-// puis utiliser `demandesFiltrees` pour l'affichage et le compteur.
-import SectionRequests from "../../components/SectionRequests/index.jsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+// La section "Demandes d'accès" est désormais gérée en interne par
+// SectionDemandesAcces (plus bas dans ce fichier) : elle exclut toujours
+// les Usagers et classe les demandes en attente en premier.
 import Chargement from "../../components/Chargement";
 import toast from 'react-hot-toast';
 import { useNavigate } from "react-router-dom";
@@ -99,8 +98,8 @@ const BtnPrimary = ({ children, onClick, style={}, disabled=false }) => (
   <button onClick={onClick} disabled={disabled} className="btn-primary" style={{ background:disabled?"#888":"#0D1F12",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,cursor:disabled?"not-allowed":"pointer",display:"inline-flex",alignItems:"center",gap:6,...style }}>{children}</button>
 );
 
-const BtnOutline = ({ children, onClick, color=T.textSecondary, style={} }) => (
-  <button onClick={onClick} className="btn-outline" style={{ background:"transparent",color,border:`1px solid ${T.cardBorder}`,borderRadius:8,padding:"7px 14px",fontSize:13,fontWeight:500,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,...style }}>{children}</button>
+const BtnOutline = ({ children, onClick, color=T.textSecondary, style={}, disabled=false }) => (
+  <button onClick={onClick} disabled={disabled} className="btn-outline" style={{ background:"transparent",color,border:`1px solid ${T.cardBorder}`,borderRadius:8,padding:"7px 14px",fontSize:13,fontWeight:500,cursor:disabled?"not-allowed":"pointer",opacity:disabled?0.6:1,display:"inline-flex",alignItems:"center",gap:6,...style }}>{children}</button>
 );
 
 const Select = ({ value, onChange, children }) => (
@@ -299,7 +298,13 @@ const TopBar = ({ onToggleSidebar, userId, notifCount, setNotifCount }) => {
     <header style={{ height:56,background:T.sidebarBg,borderBottom:`1px solid ${T.sidebarBorder}`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 20px",flexShrink:0,zIndex:100 }}>
       <div style={{ display:"flex",alignItems:"center",gap:14 }}>
         <button onClick={onToggleSidebar} className="icon-btn" style={{ background:"transparent",border:"none",color:T.sidebarText,cursor:"pointer",padding:6,borderRadius:6,display:"flex",alignItems:"center" }}><Menu size={18}/></button>
-        <div style={{ fontSize:13,fontWeight:600,color:"#E2E8F0",letterSpacing:"0.04em" }}>SOFITEX — Système de Collecte des Données Personnelles</div>
+        {/* Logo + libellé de l'espace */}
+        <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+          <div style={{ width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#E6B84A,#B8860B)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 2px 8px rgba(184,134,11,0.35)" }}>
+            <ShieldCheck size={16} color="#0D1F12" strokeWidth={2.4}/>
+          </div>
+          <div style={{ fontSize:13,fontWeight:700,color:"#E2E8F0",letterSpacing:"0.02em" }}>Espace Administrateur</div>
+        </div>
       </div>
       {/* Cloche notifications */}
       <div style={{ position:"relative" }}>
@@ -603,6 +608,168 @@ const SectionDashboard = ({ adminInfo, realRequests, loadingRequests, pendingCou
         </div>
       </div>
     </>
+  );
+};
+
+// ═══════════════════════════════════════════════════════
+//  SECTION DEMANDES D'ACCÈS — hors Usagers, nouvelles en premier
+//  Tableau (même style que Utilisateurs / Usagers / Journal d'audit),
+//  avec recherche + filtres, et le motif consultable en un clic.
+//  Classement : EN_ATTENTE (plus récentes en premier) puis
+//  APPROUVEE / REJETEE (les plus anciennes / déjà traitées) en bas.
+// ═══════════════════════════════════════════════════════
+const SectionDemandesAcces = ({ realRequests, loadingRequests, onApprove, onReject }) => {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [approvingId, setApprovingId] = useState(null);
+  const [rejetModal, setRejetModal] = useState(null);
+  const [rejetLoading, setRejetLoading] = useState(false);
+  const [motifModal, setMotifModal] = useState(null); // demande dont on affiche le motif complet
+
+  // Les Usagers ne doivent jamais apparaître dans les demandes d'accès :
+  // ils se connectent directement sans validation administrative.
+  const horsUsagers = realRequests.filter(r => r.typeUtilisateur !== 'Usager');
+
+  const statusBadge = { EN_ATTENTE:'pending', APPROUVEE:'active', REJETEE:'suspended' };
+  const statusLabel = { EN_ATTENTE:'En attente', APPROUVEE:'Approuvée', REJETEE:'Rejetée' };
+  const roles = [...new Set(horsUsagers.map(r => r.typeUtilisateur))].filter(Boolean);
+
+  const filtered = horsUsagers
+    .filter(r => statusFilter==="all" || r.statutDemandeAcces===statusFilter)
+    .filter(r => roleFilter==="all" || r.typeUtilisateur===roleFilter)
+    .filter(r => {
+      const nomComplet = `${r.prenom??''} ${r.nom??''}`.toLowerCase();
+      return nomComplet.includes(search.toLowerCase()) || r.email?.toLowerCase().includes(search.toLowerCase());
+    })
+    // Classement : demandes en attente (nouvelles) en haut, triées de la plus
+    // récente à la plus ancienne ; demandes déjà traitées (anciennes / validées)
+    // en dessous, également triées de la plus récente à la plus ancienne.
+    .sort((a,b) => {
+      const rang = (s) => s==='EN_ATTENTE' ? 0 : 1;
+      const ra = rang(a.statutDemandeAcces), rb = rang(b.statutDemandeAcces);
+      if (ra !== rb) return ra - rb;
+      return new Date(b.dateDemande) - new Date(a.dateDemande);
+    });
+
+  const handleApproveLocal = async (id) => { setApprovingId(id); await onApprove(id); setApprovingId(null); };
+  const handleRejectConfirm = async (motif) => { setRejetLoading(true); await onReject(rejetModal.idDemande, motif); setRejetLoading(false); setRejetModal(null); };
+
+  if (loadingRequests) return (
+    <div className="slide-in"><PageHeader title="Demandes d'accès" subtitle="Chargement…"/>
+      <Card style={{ overflow:"hidden" }}>
+        {[1,2,3,4,5].map(i=>(
+          <div key={i} style={{ display:"flex",alignItems:"center",gap:16,padding:"14px 16px",borderBottom:`1px solid ${T.cardBorder}` }}>
+            <div style={{ width:34,height:34,borderRadius:"50%",background:T.cardBorder,animation:"pulse 1.4s ease-in-out infinite" }}/>
+            <div style={{ flex:1,display:"flex",flexDirection:"column",gap:7 }}>
+              <div style={{ height:13,width:"40%",borderRadius:5,background:T.cardBorder,animation:"pulse 1.4s ease-in-out infinite" }}/>
+              <div style={{ height:10,width:"30%",borderRadius:5,background:T.cardBorder,animation:"pulse 1.4s ease-in-out infinite" }}/>
+            </div>
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+
+  return (
+    <div className="slide-in">
+      <ModalRejetDashboard demande={rejetModal} onConfirm={handleRejectConfirm} onCancel={() => setRejetModal(null)} loading={rejetLoading}/>
+      {motifModal && (
+        <>
+          <div onClick={() => setMotifModal(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',zIndex:900,backdropFilter:'blur(2px)',animation:'fadeIn 0.18s ease' }}/>
+          <div style={{ position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',zIndex:901,width:460,background:T.cardBg,borderRadius:16,boxShadow:'0 24px 60px rgba(0,0,0,0.2)',border:`1px solid ${T.cardBorder}`,animation:'modalIn 0.22s ease',overflow:'hidden' }}>
+            <div style={{ padding:'20px 22px 16px',borderBottom:`1px solid ${T.cardBorder}`,display:'flex',alignItems:'center',gap:12 }}>
+              <div style={{ width:38,height:38,borderRadius:10,background:T.blueBg,border:`1px solid ${T.blueBorder}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}><FileText size={18} color={T.blue}/></div>
+              <div>
+                <div style={{ fontSize:15,fontWeight:700,color:T.textPrimary }}>Motif de la demande</div>
+                <div style={{ fontSize:12,color:T.textMuted,marginTop:2 }}>{`${motifModal.prenom??''} ${motifModal.nom??''}`.trim()||motifModal.email}</div>
+              </div>
+              <button onClick={() => setMotifModal(null)} style={{ marginLeft:'auto',background:'none',border:'none',cursor:'pointer',color:T.textMuted,display:'flex',padding:4,borderRadius:6 }}><X size={16}/></button>
+            </div>
+            <div style={{ padding:'18px 22px',fontSize:13,color:T.textSecondary,lineHeight:1.7,whiteSpace:'pre-wrap' }}>
+              {motifModal.motif?.trim() ? motifModal.motif : <span style={{ fontStyle:'italic',color:T.textMuted }}>Aucun motif renseigné pour cette demande.</span>}
+            </div>
+            <div style={{ padding:'0 22px 20px',display:'flex',justifyContent:'flex-end' }}>
+              <button onClick={() => setMotifModal(null)} style={{ padding:'8px 18px',borderRadius:8,border:`1px solid ${T.cardBorder}`,background:'transparent',color:T.textSecondary,fontSize:13,fontWeight:500,cursor:'pointer' }}>Fermer</button>
+            </div>
+          </div>
+        </>
+      )}
+      <PageHeader title="Demandes d'accès" subtitle={`${filtered.length} demande(s) — hors Usagers · nouvelles en premier`}>
+        <div style={{ position:"relative",display:"flex",alignItems:"center" }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position:"absolute",left:10,pointerEvents:"none" }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" placeholder="Rechercher…" value={search} onChange={e=>setSearch(e.target.value)} style={{ paddingLeft:30,paddingRight:10,paddingTop:7,paddingBottom:7,borderRadius:8,border:`1px solid ${T.cardBorder}`,fontSize:13,color:T.textPrimary,background:T.cardBg,outline:"none",width:220,fontFamily:"inherit" }}/>
+          {search && <button onClick={() => setSearch("")} style={{ position:"absolute",right:8,background:"none",border:"none",cursor:"pointer",color:T.textMuted,display:"flex",padding:0 }}><X size={13}/></button>}
+        </div>
+        <Select value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}>
+          <option value="all">Tous les rôles</option>
+          {roles.map(r=><option key={r} value={r}>{getRoleLabel(r)}</option>)}
+        </Select>
+        <Select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
+          <option value="all">Tous les statuts</option>
+          <option value="EN_ATTENTE">En attente</option>
+          <option value="APPROUVEE">Approuvées</option>
+          <option value="REJETEE">Rejetées</option>
+        </Select>
+      </PageHeader>
+      {filtered.length===0 ? (
+        <Card style={{ padding:40,textAlign:"center" }}><div style={{ fontSize:13,color:T.textMuted,fontStyle:"italic" }}>{search?`Aucun résultat pour « ${search} »`:"Aucune demande trouvée."}</div></Card>
+      ) : (
+        <Card style={{ overflow:"hidden" }}>
+          <table style={{ borderCollapse:"collapse",width:"100%" }}>
+            <thead><tr style={{ background:T.grayBg,borderBottom:`1px solid ${T.cardBorder}` }}>
+              {["Demandeur","Rôle","Ville","Motif","Date de la demande","Statut","Actions"].map(h=>(
+                <th key={h} style={{ padding:"11px 16px",fontSize:11,fontWeight:700,color:T.textMuted,textAlign:"left",letterSpacing:"0.07em",textTransform:"uppercase" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {filtered.map((req,i) => {
+                const initiales = ((req.prenom?.charAt(0)??'')+(req.nom?.charAt(0)??'')).toUpperCase()||'?';
+                const nomComplet = `${req.prenom??''} ${req.nom??''}`.trim()||req.email;
+                const isApproving = approvingId===req.idDemande;
+                const enAttente = req.statutDemandeAcces==='EN_ATTENTE';
+                return (
+                  <tr key={req.idDemande} style={{ borderBottom:i<filtered.length-1?`1px solid ${T.cardBorder}`:"none",opacity:isApproving?0.5:1 }} className="table-row-hover">
+                    <td style={{ padding:"12px 16px" }}>
+                      <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                        <Avatar initials={initiales} size={34} bg={T.purpleBg} color={T.purple} border={T.purpleBorder}/>
+                        <div><div style={{ fontSize:13,fontWeight:600,color:T.textPrimary }}>{nomComplet}</div><div style={{ fontSize:11,color:T.textMuted }}>{req.email}</div></div>
+                      </div>
+                    </td>
+                    <td style={{ padding:"12px 16px",fontSize:13,color:T.textSecondary }}>{getRoleLabel(req.typeUtilisateur)}</td>
+                    <td style={{ padding:"12px 16px",fontSize:13,color:T.textSecondary }}>{req.ville||'—'}</td>
+                    <td style={{ padding:"12px 16px" }}>
+                      {req.motif?.trim() ? (
+                        <button onClick={() => setMotifModal(req)} title="Voir le motif complet" style={{ display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",padding:0,maxWidth:180 }}>
+                          <span style={{ fontSize:12,color:T.textSecondary,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{req.motif}</span>
+                          <Eye size={13} color={T.blue} style={{ flexShrink:0 }}/>
+                        </button>
+                      ) : (
+                        <span style={{ fontSize:12,color:T.textMuted,fontStyle:"italic" }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding:"12px 16px",fontSize:12,color:T.textMuted,fontFamily:"'DM Mono',monospace" }}>{req.dateDemande ? new Date(req.dateDemande).toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'}</td>
+                    <td style={{ padding:"12px 16px" }}><Badge type={statusBadge[req.statutDemandeAcces]||'info'}/></td>
+                    <td style={{ padding:"12px 16px" }}>
+                      {enAttente ? (
+                        <div style={{ display:"flex",gap:5 }}>
+                          <button onClick={() => !isApproving && handleApproveLocal(req.idDemande)} disabled={isApproving} title="Approuver" style={{ width:28,height:28,background:T.greenBg,border:`1px solid ${T.greenBorder}`,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",cursor:isApproving?"not-allowed":"pointer",color:T.green }}>
+                            {isApproving?<Spinner size={11} color={T.green}/>:<Check size={13}/>}
+                          </button>
+                          <button onClick={() => setRejetModal(req)} disabled={isApproving} title="Refuser" style={{ width:28,height:28,background:T.redBg,border:`1px solid ${T.redBorder}`,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",cursor:isApproving?"not-allowed":"pointer",color:T.red }}><X size={13}/></button>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize:11,color:T.textMuted,fontStyle:"italic" }}>{statusLabel[req.statutDemandeAcces]||'Traitée'}</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </div>
   );
 };
 
@@ -952,28 +1119,136 @@ const exportExcel = async (filename, sheetName, columns, rows) => {
   saveAs(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
 };
 
+// ═══════════════════════════════════════════════════════
+//  EXPORT PDF STRUCTURÉ — titre + description + tableau
+// ═══════════════════════════════════════════════════════
+const exportPDF = (filename, title, description, columns, rows) => {
+  const orientation = columns.length > 5 ? "landscape" : "portrait";
+  const doc = new jsPDF({ orientation, unit: "pt", format: "a4" });
+  const pageWidth  = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 40;
+
+  // ── Bandeau d'en-tête (titre) ────────────────────────────────
+  doc.setFillColor(13, 31, 18); // #0D1F12
+  doc.rect(0, 0, pageWidth, 66, "F");
+  doc.setFillColor(184, 134, 11); // #B8860B — liseré doré
+  doc.rect(0, 66, pageWidth, 2, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text(title, marginX, 30);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(230, 184, 74); // gold clair
+  doc.text("SOFITEX — Système de Collecte des Données Personnelles", marginX, 48);
+
+  // ── Description ──────────────────────────────────────────────
+  doc.setTextColor(60, 60, 60);
+  doc.setFontSize(10);
+  const descLines = doc.splitTextToSize(description, pageWidth - marginX * 2);
+  doc.text(descLines, marginX, 90);
+
+  const tableStartY = 90 + descLines.length * 13 + 14;
+
+  // ── Tableau des données ──────────────────────────────────────
+  autoTable(doc, {
+    startY: tableStartY,
+    head: [columns.map(c => c.header)],
+    body: rows.map(r => columns.map(c => (r[c.key] ?? '—').toString())),
+    styles: { fontSize: 8.5, cellPadding: 5, textColor: [30, 30, 30], lineColor: [228, 232, 238], lineWidth: 0.5 },
+    headStyles: { fillColor: [13, 31, 18], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8.5 },
+    alternateRowStyles: { fillColor: [249, 250, 251] },
+    margin: { left: marginX, right: marginX },
+    theme: "grid",
+  });
+
+  // ── Pied de page (date + pagination) ─────────────────────────
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text(
+      `Généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}`,
+      marginX, pageHeight - 20
+    );
+    doc.text(`Page ${i} / ${pageCount}`, pageWidth - marginX - 50, pageHeight - 20);
+  }
+
+  doc.save(filename);
+};
+
 const SectionReports = ({ users, realRequests }) => {
   const [loading, setLoading] = useState({});
   const setLoad = (key, val) => setLoading(l => ({ ...l, [key]: val }));
 
+  // ── Colonnes et données partagées entre Excel et PDF ──────────────────
+  const colsUtilisateurs = [
+    { header:"Nom complet", key:"name" },
+    { header:"Email", key:"email", width:28 },
+    { header:"Rôle", key:"role" },
+    { header:"Statut", key:"status" },
+  ];
+  const rowsUtilisateurs = () => users.filter(u=>u.role!=='Usager').map(u => ({
+    name:u.name, email:u.email, role:u.role,
+    status:{active:'Actif',inactive:'Inactif',suspended:'Suspendu'}[u.status]||u.status,
+  }));
+
+  const colsUsagers = [
+    { header:"Nom complet", key:"name" },
+    { header:"Email", key:"email", width:28 },
+    { header:"Statut", key:"status" },
+  ];
+  const rowsUsagers = () => users.filter(u=>u.role==='Usager').map(u => ({
+    name:u.name, email:u.email,
+    status:{active:'Actif',inactive:'Inactif',suspended:'Suspendu'}[u.status]||u.status,
+  }));
+
+  const colsDemandes = [
+    { header:"Nom", key:"nom" },
+    { header:"Prénom", key:"prenom" },
+    { header:"Email", key:"email", width:28 },
+    { header:"Type", key:"type" },
+    { header:"Statut", key:"statut" },
+    { header:"Date demande", key:"date" },
+    { header:"Ville", key:"ville" },
+  ];
+  const rowsDemandes = () => realRequests.filter(r=>r.typeUtilisateur!=='Usager').map(r => ({
+    nom:r.nom||'', prenom:r.prenom||'', email:r.email||'',
+    type:getRoleLabel(r.typeUtilisateur), statut:{EN_ATTENTE:'En attente',APPROUVEE:'Approuvée',REJETEE:'Rejetée'}[r.statutDemandeAcces]||r.statutDemandeAcces||'',
+    date:r.dateDemande ? new Date(r.dateDemande).toLocaleDateString('fr-FR') : '', ville:r.ville||'',
+  }));
+
+  const colsAudit = [
+    { header:"Date", key:"date", width:20 },
+    { header:"Utilisateur", key:"user" },
+    { header:"Email", key:"email", width:28 },
+    { header:"Rôle", key:"role" },
+    { header:"Action", key:"action" },
+    { header:"Module", key:"module" },
+    { header:"Résultat", key:"resultat" },
+  ];
+  const fetchAuditRows = async () => {
+    const r = await fetch(`${BASE}/admin/journal-audit`, { headers: authHeader() });
+    const data = await r.json();
+    return data.map(l => ({
+      date:l.dateAction, user:l.utilisateurNomPrenom||'', email:l.utilisateurEmail||'',
+      role:getRoleLabel(l.utilisateurRole), action:l.typeAction, module:l.moduleConserne,
+      resultat:l.resultatAction,
+    }));
+  };
+
+  const today = () => new Date().toISOString().slice(0,10);
+
+  // ── Excel ──────────────────────────────────────────────────────────
   const genRapportUtilisateurs = async () => {
     setLoad('users', true);
     try {
-      await exportExcel(
-        `rapport_utilisateurs_${new Date().toISOString().slice(0,10)}.xlsx`,
-        "Utilisateurs",
-        [
-          { header:"Nom complet", key:"name" },
-          { header:"Email", key:"email", width:28 },
-          { header:"Rôle", key:"role" },
-          { header:"Statut", key:"status" },
-        ],
-        users.filter(u=>u.role!=='Usager').map(u => ({
-          name:u.name, email:u.email, role:u.role,
-          status:{active:'Actif',inactive:'Inactif',suspended:'Suspendu'}[u.status]||u.status,
-        }))
-      );
-      toast.success("Rapport utilisateurs exporté");
+      await exportExcel(`rapport_utilisateurs_${today()}.xlsx`, "Utilisateurs", colsUtilisateurs, rowsUtilisateurs());
+      toast.success("Rapport utilisateurs exporté (Excel)");
     } catch { toast.error("Erreur export utilisateurs"); }
     finally { setLoad('users', false); }
   };
@@ -981,20 +1256,8 @@ const SectionReports = ({ users, realRequests }) => {
   const genRapportUsagers = async () => {
     setLoad('usagers', true);
     try {
-      await exportExcel(
-        `rapport_usagers_${new Date().toISOString().slice(0,10)}.xlsx`,
-        "Usagers",
-        [
-          { header:"Nom complet", key:"name" },
-          { header:"Email", key:"email", width:28 },
-          { header:"Statut", key:"status" },
-        ],
-        users.filter(u=>u.role==='Usager').map(u => ({
-          name:u.name, email:u.email,
-          status:{active:'Actif',inactive:'Inactif',suspended:'Suspendu'}[u.status]||u.status,
-        }))
-      );
-      toast.success("Rapport usagers exporté");
+      await exportExcel(`rapport_usagers_${today()}.xlsx`, "Usagers", colsUsagers, rowsUsagers());
+      toast.success("Rapport usagers exporté (Excel)");
     } catch { toast.error("Erreur export usagers"); }
     finally { setLoad('usagers', false); }
   };
@@ -1002,25 +1265,8 @@ const SectionReports = ({ users, realRequests }) => {
   const genRapportDemandes = async () => {
     setLoad('demandes', true);
     try {
-      await exportExcel(
-        `rapport_demandes_${new Date().toISOString().slice(0,10)}.xlsx`,
-        "Demandes",
-        [
-          { header:"Nom", key:"nom" },
-          { header:"Prénom", key:"prenom" },
-          { header:"Email", key:"email", width:28 },
-          { header:"Type", key:"type" },
-          { header:"Statut", key:"statut" },
-          { header:"Date demande", key:"date" },
-          { header:"Ville", key:"ville" },
-        ],
-        realRequests.filter(r=>r.typeUtilisateur!=='Usager').map(r => ({
-          nom:r.nom||'', prenom:r.prenom||'', email:r.email||'',
-          type:getRoleLabel(r.typeUtilisateur), statut:r.statutDemandeAcces||'',
-          date:r.dateDemande||'', ville:r.ville||'',
-        }))
-      );
-      toast.success("Rapport demandes exporté");
+      await exportExcel(`rapport_demandes_${today()}.xlsx`, "Demandes", colsDemandes, rowsDemandes());
+      toast.success("Rapport demandes exporté (Excel)");
     } catch { toast.error("Erreur export demandes"); }
     finally { setLoad('demandes', false); }
   };
@@ -1028,29 +1274,69 @@ const SectionReports = ({ users, realRequests }) => {
   const genRapportAudit = async () => {
     setLoad('audit', true);
     try {
-      const r = await fetch(`${BASE}/admin/journal-audit`, { headers: authHeader() });
-      const data = await r.json();
-      await exportExcel(
-        `rapport_audit_${new Date().toISOString().slice(0,10)}.xlsx`,
-        "Journal d'audit",
-        [
-          { header:"Date", key:"date", width:20 },
-          { header:"Utilisateur", key:"user" },
-          { header:"Email", key:"email", width:28 },
-          { header:"Rôle", key:"role" },
-          { header:"Action", key:"action" },
-          { header:"Module", key:"module" },
-          { header:"Résultat", key:"resultat" },
-        ],
-        data.map(l => ({
-          date:l.dateAction, user:l.utilisateurNomPrenom||'', email:l.utilisateurEmail||'',
-          role:getRoleLabel(l.utilisateurRole), action:l.typeAction, module:l.moduleConserne,
-          resultat:l.resultatAction,
-        }))
-      );
-      toast.success("Rapport audit exporté");
+      const data = await fetchAuditRows();
+      await exportExcel(`rapport_audit_${today()}.xlsx`, "Journal d'audit", colsAudit, data);
+      toast.success("Rapport audit exporté (Excel)");
     } catch { toast.error("Erreur export audit"); }
     finally { setLoad('audit', false); }
+  };
+
+  // ── PDF ────────────────────────────────────────────────────────────
+  const genRapportUtilisateursPDF = async () => {
+    setLoad('users-pdf', true);
+    try {
+      exportPDF(
+        `rapport_utilisateurs_${today()}.pdf`,
+        "Rapport des utilisateurs",
+        `Ce rapport liste l'ensemble des utilisateurs de la plateforme (hors Usagers), avec leur rôle et leur statut de compte. Il recense ${rowsUtilisateurs().length} utilisateur(s) au total, générés le ${new Date().toLocaleDateString('fr-FR')}.`,
+        colsUtilisateurs, rowsUtilisateurs()
+      );
+      toast.success("Rapport utilisateurs exporté (PDF)");
+    } catch { toast.error("Erreur export PDF utilisateurs"); }
+    finally { setLoad('users-pdf', false); }
+  };
+
+  const genRapportUsagersPDF = async () => {
+    setLoad('usagers-pdf', true);
+    try {
+      exportPDF(
+        `rapport_usagers_${today()}.pdf`,
+        "Rapport des usagers",
+        `Ce rapport recense l'ensemble des usagers inscrits sur la plateforme, avec leur statut de compte. Il contient ${rowsUsagers().length} usager(s) au total, générés le ${new Date().toLocaleDateString('fr-FR')}.`,
+        colsUsagers, rowsUsagers()
+      );
+      toast.success("Rapport usagers exporté (PDF)");
+    } catch { toast.error("Erreur export PDF usagers"); }
+    finally { setLoad('usagers-pdf', false); }
+  };
+
+  const genRapportDemandesPDF = async () => {
+    setLoad('demandes-pdf', true);
+    try {
+      exportPDF(
+        `rapport_demandes_${today()}.pdf`,
+        "Rapport des demandes d'accès",
+        `Ce rapport présente toutes les demandes d'accès reçues (hors Usagers), avec leur statut, la date de la demande et la ville du demandeur. Il recense ${rowsDemandes().length} demande(s) au total, générées le ${new Date().toLocaleDateString('fr-FR')}.`,
+        colsDemandes, rowsDemandes()
+      );
+      toast.success("Rapport demandes exporté (PDF)");
+    } catch { toast.error("Erreur export PDF demandes"); }
+    finally { setLoad('demandes-pdf', false); }
+  };
+
+  const genRapportAuditPDF = async () => {
+    setLoad('audit-pdf', true);
+    try {
+      const data = await fetchAuditRows();
+      exportPDF(
+        `rapport_audit_${today()}.pdf`,
+        "Journal d'audit complet",
+        `Ce rapport détaille l'intégralité des actions enregistrées dans le journal d'audit de la plateforme : utilisateur concerné, rôle, action, module et résultat. Il recense ${data.length} entrée(s) au total, générées le ${new Date().toLocaleDateString('fr-FR')}.`,
+        colsAudit, data
+      );
+      toast.success("Rapport audit exporté (PDF)");
+    } catch { toast.error("Erreur export PDF audit"); }
+    finally { setLoad('audit-pdf', false); }
   };
 
   const stats = [
@@ -1061,15 +1347,15 @@ const SectionReports = ({ users, realRequests }) => {
   ];
 
   const reports = [
-    { key:'users',    title:"Rapport Utilisateurs", desc:"Liste des utilisateurs approuvés avec statut et rôle", Icon:Users, color:T.blue, bgColor:T.blueBg, action:genRapportUtilisateurs },
-    { key:'usagers',  title:"Rapport Usagers",      desc:"Tous les usagers de la plateforme avec statut", Icon:UserCircle, color:T.teal, bgColor:T.tealBg, action:genRapportUsagers },
-    { key:'demandes', title:"Rapport Demandes",     desc:"Toutes les demandes d'accès avec décisions et dates", Icon:UserCheck, color:T.purple, bgColor:T.purpleBg, action:genRapportDemandes },
-    { key:'audit',    title:"Rapport Audit",        desc:"Journal d'audit complet — toutes les actions de la plateforme", Icon:ShieldCheck, color:T.green, bgColor:T.greenBg, action:genRapportAudit },
+    { key:'users',    pdfKey:'users-pdf',    title:"Rapport Utilisateurs", desc:"Liste des utilisateurs approuvés avec statut et rôle", Icon:Users, color:T.blue, bgColor:T.blueBg, actionExcel:genRapportUtilisateurs, actionPDF:genRapportUtilisateursPDF },
+    { key:'usagers',  pdfKey:'usagers-pdf',  title:"Rapport Usagers",      desc:"Tous les usagers de la plateforme avec statut", Icon:UserCircle, color:T.teal, bgColor:T.tealBg, actionExcel:genRapportUsagers, actionPDF:genRapportUsagersPDF },
+    { key:'demandes', pdfKey:'demandes-pdf', title:"Rapport Demandes",     desc:"Toutes les demandes d'accès avec décisions et dates", Icon:UserCheck, color:T.purple, bgColor:T.purpleBg, actionExcel:genRapportDemandes, actionPDF:genRapportDemandesPDF },
+    { key:'audit',    pdfKey:'audit-pdf',    title:"Rapport Audit",        desc:"Journal d'audit complet — toutes les actions de la plateforme", Icon:ShieldCheck, color:T.green, bgColor:T.greenBg, actionExcel:genRapportAudit, actionPDF:genRapportAuditPDF },
   ];
 
   return (
     <div className="slide-in">
-      <PageHeader title="Rapports" subtitle="Génération et export des rapports au format Excel (.xlsx)"/>
+      <PageHeader title="Rapports" subtitle="Génération et export des rapports au format Excel (.xlsx) et PDF"/>
       <div style={{ display:"grid",gridTemplateColumns:"repeat(4, minmax(0,1fr))",gap:12,marginBottom:20 }}>
         {stats.map((s,i)=>(
           <Card key={i} style={{ padding:"14px 16px" }}>
@@ -1086,9 +1372,14 @@ const SectionReports = ({ users, realRequests }) => {
             </div>
             <div style={{ fontSize:14,fontWeight:700,color:T.textPrimary,marginBottom:5 }}>{rp.title}</div>
             <div style={{ fontSize:12,color:T.textSecondary,marginBottom:18,lineHeight:1.55 }}>{rp.desc}</div>
-            <BtnPrimary onClick={rp.action} disabled={loading[rp.key]} style={{ width:"100%",justifyContent:"center",background:rp.color }}>
-              {loading[rp.key]?<><Spinner/> Génération…</>:<><Download size={13}/> Exporter Excel</>}
-            </BtnPrimary>
+            <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+              <BtnPrimary onClick={rp.actionExcel} disabled={loading[rp.key]} style={{ width:"100%",justifyContent:"center",background:rp.color }}>
+                {loading[rp.key]?<><Spinner/> Génération…</>:<><Download size={13}/> Exporter Excel</>}
+              </BtnPrimary>
+              <BtnOutline onClick={rp.actionPDF} disabled={loading[rp.pdfKey]} color={rp.color} style={{ width:"100%",justifyContent:"center",borderColor:rp.color }}>
+                {loading[rp.pdfKey]?<><Spinner size={13} color={rp.color}/> Génération…</>:<><FileText size={13}/> Exporter PDF</>}
+              </BtnOutline>
+            </div>
           </Card>
         ))}
       </div>
@@ -1366,7 +1657,7 @@ export default function TableauDeBoard() {
         <Sidebar active={section} setActive={setSection} collapsed={collapsed} adminInfo={adminInfo} pendingCount={realPendingCount}/>
         <main style={{ flex:1,overflow:"auto",padding:"24px 28px",background:T.mainBg }}>
           {section==="dashboard" && <SectionDashboard adminInfo={adminInfo} realRequests={realRequests} loadingRequests={loadingRequests} pendingCount={realPendingCount} setSection={setSection} onApprove={handleApproveReal} onReject={handleRejectReal}/>}
-          {section==="requests"  && <SectionRequests onApprove={()=>{}} onReject={()=>{}} onPendingCountChange={setRealPendingCount}/>}
+          {section==="requests"  && <SectionDemandesAcces realRequests={realRequests} loadingRequests={loadingRequests} onApprove={handleApproveReal} onReject={handleRejectReal}/>}
           {section==="users"     && <SectionUsers users={users} setUsers={setUsers} loadingUsers={loadingUsers}/>}
           {section==="usagers"   && <SectionUsagers users={users} loadingUsers={loadingUsers}/>}
           {section==="audit"     && <SectionAudit/>}

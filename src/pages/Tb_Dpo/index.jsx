@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
+import * as XLSX from "xlsx";
 import {
   FolderOpen, FileText, Bell, LogOut, Menu, Plus, Eye, Check, X,
   Clock, CheckCircle2, XCircle, AlertCircle, Send,
   StopCircle, Download, RefreshCw, ChevronLeft, ChevronRight,
   BarChart3, Cpu, ArrowUpRight, Shield, Pencil,
-  Activity, FileCheck, Calendar, User, Wrench
+  Activity, FileCheck, Calendar, User, Wrench, Database
 } from "lucide-react";
  
 // ═══════════════════════════════════════════════════════
@@ -190,6 +191,9 @@ const PanneauNotifications = ({ userId, onClose, onCountChange }) => {
           const rl = await fetch(`${BASE}/notifications/${userId}/lire-tout`, { method:"PATCH", headers:authH() });
           if (rl.ok) setNotifs(ns => ns.map(n => ({ ...n, statut:"LUE" })));
         }
+        // Le compteur passe à 0 immédiatement dès l'ouverture du panneau,
+        // et ne sera plus jamais remonté par erreur par le polling tant
+        // que le panneau reste ouvert (voir notifsOpenRef dans TopBar/Tb_Dpo).
         onCountChange(0);
       } catch(e) { setError(e.message); }
       finally { setLoading(false); }
@@ -237,21 +241,43 @@ const PanneauNotifications = ({ userId, onClose, onCountChange }) => {
 
 // ═══════════════════════════════════════════════════════
 //  TOPBAR
+//  Correction : la cloche ne doit plus se "réactiver" toute seule après
+//  ouverture. On garde une ref partagée (notifsOpenRef) qui empêche le
+//  polling parent de réécrire notifCount tant que le panneau est ouvert,
+//  et on relance un fetch propre à la fermeture pour resynchroniser.
 // ═══════════════════════════════════════════════════════
-const TopBar = ({ onToggle, userId, notifCount, setNotifCount, dpoInfo }) => {
+const TopBar = ({ onToggle, userId, notifCount, setNotifCount, dpoInfo, notifsOpenRef, onPanelClose }) => {
   const [showNotifs, setShowNotifs] = useState(false);
+
+  const toggleNotifs = () => {
+    setShowNotifs(v => {
+      const next = !v;
+      if (notifsOpenRef) notifsOpenRef.current = next;
+      return next;
+    });
+  };
+
+  const closePanel = () => {
+    setShowNotifs(false);
+    if (notifsOpenRef) notifsOpenRef.current = false;
+    if (onPanelClose) onPanelClose();
+  };
+
   return (
     <header style={{ height:56,background:T.sidebarBg,borderBottom:`1px solid ${T.sidebarBorder}`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 20px",flexShrink:0,zIndex:100 }}>
       <div style={{ display:"flex",alignItems:"center",gap:14 }}>
         <button onClick={onToggle} style={{ background:"transparent",border:"none",color:T.sidebarText,cursor:"pointer",padding:6,borderRadius:6,display:"flex" }}><Menu size={18}/></button>
+        <div style={{ width:28,height:28,borderRadius:8,background:T.goldLight,border:`1.5px solid ${T.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+          <Shield size={15} color={T.gold} strokeWidth={2}/>
+        </div>
         <div style={{ fontSize:13,fontWeight:700,color:"#E2E8F0",letterSpacing:"0.04em" }}>SOFITEX — Espace DPO</div>
       </div>
       <div style={{ position:"relative" }}>
-        <button onClick={() => setShowNotifs(v => !v)} style={{ background:"transparent",border:"none",color:T.sidebarText,cursor:"pointer",padding:7,borderRadius:7,display:"flex",alignItems:"center",position:"relative" }}>
+        <button onClick={toggleNotifs} style={{ background:"transparent",border:"none",color:T.sidebarText,cursor:"pointer",padding:7,borderRadius:7,display:"flex",alignItems:"center",position:"relative" }}>
           <Bell size={17}/>
           {notifCount > 0 && <span style={{ position:"absolute",top:2,right:2,width:16,height:16,background:T.red,color:"#fff",borderRadius:"50%",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${T.sidebarBg}` }}>{notifCount>99?"99+":notifCount}</span>}
         </button>
-        {showNotifs && userId && <PanneauNotifications userId={userId} onClose={() => setShowNotifs(false)} onCountChange={setNotifCount}/>}
+        {showNotifs && userId && <PanneauNotifications userId={userId} onClose={closePanel} onCountChange={setNotifCount}/>}
       </div>
     </header>
   );
@@ -369,6 +395,17 @@ const ModalCreerSession = ({ onClose, onSave }) => {
 
 // ═══════════════════════════════════════════════════════
 //  MODALE : MODIFIER SESSION
+//  NOTE IMPORTANTE (Elvis) : le code ci-dessous est correct côté frontend
+//  (PUT /sessions/{id} avec le payload attendu). Si la modification "ne
+//  passe toujours pas", le blocage vient très probablement du backend :
+//  soit l'endpoint PUT n'existe pas encore côté SessionController, soit
+//  la vérification de verrouillage de session (que tu as ajoutée pour
+//  empêcher d'ajouter des traitements à une session TERMINEE/ANNULEE) a
+//  été placée dans SessionService.update() au lieu d'être limitée à
+//  l'ajout de traitement — ce qui bloquerait aussi la modification du
+//  nom/lieu/description d'une session déjà terminée.
+//  J'ai ajouté un console.error pour t'aider à voir la vraie réponse HTTP
+//  dans la console si ça échoue encore.
 // ═══════════════════════════════════════════════════════
 const ModalModifierSession = ({ session, onClose, onSave }) => {
   const toDateInput = (iso) => iso ? iso.split("T")[0] : "";
@@ -394,7 +431,11 @@ const ModalModifierSession = ({ session, onClose, onSave }) => {
         dateFin: session.dateFin || null,
       };
       const r = await fetch(`${BASE}/sessions/${session.idSession}`, { method:"PUT", headers:authH(), body:JSON.stringify(payload) });
-      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
+      if (!r.ok) {
+        const e = await r.json().catch(()=>({}));
+        console.error("Échec modification session — statut HTTP:", r.status, "réponse:", e);
+        throw new Error(e.message || `Erreur ${r.status} — vérifie le backend (endpoint PUT /sessions/{id} et verrouillage de session)`);
+      }
       const data = await r.json();
       onSave(data); onClose(); toast.success("Session mise à jour !");
     } catch(e) { setError(e.message); }
@@ -909,7 +950,10 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const upd = (k,v) => setF(p => ({...p,[k]:v}));
+<<<<<<< HEAD
   // const isEdit = mode === "edit";
+=======
+>>>>>>> c46bbf060922fd75491a5f34f53b9335f045a434
 
   const typeMap = { NORMALE:ETAPES_NORMALE, COLLECTE_SITE:ETAPES_SITE, VIDEO_SURVEILLANCE:ETAPES_VIDEO, AUTORISATION:ETAPES_AUTO };
   const etapes = typeMap[f.typeDeclaration] || ETAPES_NORMALE;
@@ -1141,7 +1185,7 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
 };
 
 // ═══════════════════════════════════════════════════════
-//  EXPORT PDF
+//  EXPORT PDF (déclaration individuelle)
 // ═══════════════════════════════════════════════════════
 const exportDeclarationPDF = (declaration, traitement) => {
   const statLabel = {
@@ -1233,6 +1277,44 @@ ${traitement ? `<div class="section"><div class="section-title">Traitement assoc
   const win = window.open("","_blank");
   win.document.write(html);
   win.document.close();
+};
+
+// ═══════════════════════════════════════════════════════
+//  EXPORT PDF (table générique — sessions, déclarations, traitements)
+// ═══════════════════════════════════════════════════════
+const exportTablePDF = (title, headers, rows) => {
+  const date = new Date().toLocaleDateString("fr-FR",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${title}</title>
+  <style>
+    body{font-family:'Segoe UI',sans-serif;margin:0;padding:0;color:#1a1a1a;font-size:12px;}
+    .page{max-width:1000px;margin:0 auto;padding:32px;}
+    .header{background:#0D1F12;color:#fff;padding:20px 26px;border-radius:8px 8px 0 0;}
+    .header h1{margin:0 0 4px;font-size:18px;font-weight:800;}
+    .header p{margin:0;opacity:0.7;font-size:11px;}
+    table{width:100%;border-collapse:collapse;margin-top:16px;}
+    th{background:#F9FAFB;text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6B7280;border-bottom:2px solid #E5E7EB;}
+    td{padding:8px 10px;border-bottom:1px solid #E5E7EB;font-size:11px;}
+    tr:nth-child(even){background:#FAFBFC;}
+    @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+  </style></head><body><div class="page">
+  <div class="header"><div style="font-size:14px;font-weight:800;letter-spacing:0.08em;">SOFITEX</div>
+  <h1>${title}</h1><p>Généré le ${date} — ${rows.length} ligne(s)</p></div>
+  <table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+  <tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c??"—"}</td>`).join("")}</tr>`).join("")}</tbody></table>
+  </div><script>window.onload=()=>window.print();</script></body></html>`;
+  const win = window.open("","_blank");
+  win.document.write(html);
+  win.document.close();
+};
+
+// ═══════════════════════════════════════════════════════
+//  EXPORT EXCEL (Microsoft Office .xlsx via SheetJS)
+// ═══════════════════════════════════════════════════════
+const exportExcel = (filename, sheetName, rows) => {
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, filename);
 };
 
 // ═══════════════════════════════════════════════════════
@@ -1408,15 +1490,21 @@ const SectionSessions = ({ sessions, setSessions, setSection, setSelectedSession
 // ═══════════════════════════════════════════════════════
 //  SECTION : TRAITEMENTS
 // ═══════════════════════════════════════════════════════
-const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo }) => {
+const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo, initialSessionId }) => {
   const [traitements,   setTraitements]   = useState([]);
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState("");
   const [showDecl,      setShowDecl]      = useState(null);
   const [declPrefill,   setDeclPrefill]   = useState(null);
   const [showDonnees,   setShowDonnees]   = useState(null);
-  const [filterSession, setFilterSession] = useState("all");
+  const [filterSession, setFilterSession] = useState(initialSessionId ? String(initialSessionId) : "all");
   const [search,        setSearch]        = useState("");
+
+  // Si on arrive depuis "Voir traitements" (bouton d'une session précise),
+  // on présélectionne automatiquement cette session dans le filtre.
+  useEffect(() => {
+    if (initialSessionId) setFilterSession(String(initialSessionId));
+  }, [initialSessionId]);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -1563,7 +1651,10 @@ const TraitementCard = ({ t, sessionInfo, hasDeclared, getDeclOf, setShowDecl, s
       </div>
       {t.envoyeAuDpo && <div style={{ fontSize:11,color:T.green,marginBottom:8,display:"flex",alignItems:"center",gap:4 }}><CheckCircle2 size={11}/> Envoyé au DPO le {t.dateEnvoiDpo?.split("T")[0]}</div>}
       <div style={{ display:"flex",alignItems:"center",gap:8,borderTop:`1px solid ${T.cardBorder}`,paddingTop:10,flexWrap:"wrap" }}>
-        {declared && decl && <Badge type={decl.statut}/>}
+        {/* Le badge "En attente" disparaît dès que le traitement est déclaré :
+            on n'affiche un badge ici que si la déclaration a déjà été résolue
+            (approuvée ou rejetée) par la DG/CIL. */}
+        {declared && decl && decl.statut!=="EN_ATTENTE" && decl.statut!=="EN_ATTENTE_DG" && <Badge type={decl.statut}/>}
         <div style={{ flex:1 }}/>
         <Btn onClick={() => setShowDonnees(t)} style={{ fontSize:11,padding:"5px 10px" }}><Database size={12}/> Données</Btn>
         {!declared ? (
@@ -1583,6 +1674,7 @@ const TraitementCard = ({ t, sessionInfo, hasDeclared, getDeclOf, setShowDecl, s
 //  SECTION : DÉCLARATIONS — manuelles uniquement
 //  Filtres : En attente DG | Approuvées DG | Rejetées DG
 //  + Modifier / Corriger et renvoyer une déclaration rejetée
+//  + Affiche maintenant #ID ET le nom du traitement lié
 // ═══════════════════════════════════════════════════════
 const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
   const [filter,      setFilter]      = useState("all");
@@ -1590,6 +1682,7 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
   const [exportingId, setExportingId] = useState(null);
   const [editTarget,  setEditTarget]  = useState(null);   // { declaration, traitement }
   const [loadingEditId, setLoadingEditId] = useState(null);
+  const [traitementsMap, setTraitementsMap] = useState({}); // { idTraitement: nomAffiche }
 
   const load = useCallback(async () => {
     if (!dpoInfo?.id) return;
@@ -1606,6 +1699,22 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
   }, [dpoInfo?.id, setDeclarations]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Charge la liste des traitements une fois, pour afficher leur nom
+  // à côté du numéro dans la liste des déclarations.
+  useEffect(() => {
+    const loadTraitements = async () => {
+      try {
+        const r = await fetch(`${BASE}/traitements`, { headers: authH() });
+        if (!r.ok) return;
+        const data = await r.json();
+        const map = {};
+        data.forEach(t => { map[t.idTraitement] = t.nom || t.description || `#${t.idTraitement}`; });
+        setTraitementsMap(map);
+      } catch {}
+    };
+    loadTraitements();
+  }, []);
 
   const filtered = filter==="all" ? declarations : declarations.filter(d =>
     filter==="APPROUVEE" ? (d.statut?.includes("APPROUVEE")||d.statut==="VALIDEE_CIL") :
@@ -1650,6 +1759,13 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
     if (statut?.includes("REJETEE")) return <XCircle size={16} color={T.red}/>;
     if (statut==="EN_VERIFICATION_CIL") return <Shield size={16} color={T.purple}/>;
     return <Clock size={16} color={T.yellow}/>;
+  };
+
+  // Nom du traitement lié à une déclaration, formaté "#ID — Nom"
+  const traitementLabel = (d) => {
+    if (!d.traitementId) return "—";
+    const nom = traitementsMap[d.traitementId];
+    return nom ? `#${d.traitementId} — ${nom}` : `#${d.traitementId}`;
   };
 
   // 3 compteurs uniquement (CIL retiré)
@@ -1712,7 +1828,7 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
                         {[
                           { label:"Date de soumission", value:d.dateSoumission||"—" },
                           { label:"DPO",                value:d.dpoNomPrenom||"—" },
-                          { label:"Traitement",         value:d.traitementId?`#${d.traitementId}`:"—" },
+                          { label:"Traitement",         value:traitementLabel(d) },
                         ].map((it,i) => (
                           <div key={i} style={{ fontSize:12 }}>
                             <div style={{ color:T.textMuted,marginBottom:2 }}>{it.label}</div>
@@ -1760,7 +1876,7 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : RAPPORTS & EXPORT — boutons colorés
+//  SECTION : RAPPORTS & EXPORT — CSV + Excel + PDF
 // ═══════════════════════════════════════════════════════
 const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
   const [loading, setLoading] = useState({});
@@ -1768,57 +1884,93 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
 
   const declsManuelles = declarations.filter(estDeclarationManuelle);
 
-  const exportCSV = (filename, headers, rows) => {
-    const content = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob(["\uFEFF"+content], { type:"text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href=url; a.download=filename; a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const rapportSessions = async () => {
-    setLoad("sessions",true);
-    await new Promise(r=>setTimeout(r,400));
-    exportCSV(`sessions_dpo_${new Date().toISOString().slice(0,10)}.csv`,
-      ["ID","Nom","Lieu","Type","Statut","Date début","Date fin","Traitements","DPO"],
-      sessions.map(s => `${s.idSession},"${s.nomSession||""}","${s.lieu}","${s.typeCollecte}","${s.statutSession}","${s.dateDebut?.split("T")[0]||""}","${s.dateFin?.split("T")[0]||""}",${s.nombreTraitements},"${s.dpoNomComplet||""}"`)
+  // ── SESSIONS ──────────────────────────────────────────
+  const rapportSessionsExcel = () => {
+    setLoad("sessionsXlsx",true);
+    exportExcel(`sessions_dpo_${new Date().toISOString().slice(0,10)}.xlsx`, "Sessions",
+      sessions.map(s => ({
+        ID:s.idSession, Nom:s.nomSession||"", Lieu:s.lieu, Type:s.typeCollecte,
+        Statut:s.statutSession, "Date début":s.dateDebut?.split("T")[0]||"",
+        "Date fin":s.dateFin?.split("T")[0]||"", Traitements:s.nombreTraitements, DPO:s.dpoNomComplet||""
+      }))
     );
-    setLoad("sessions",false);
-    toast.success("Export sessions généré");
+    setLoad("sessionsXlsx",false);
+    toast.success("Export Excel des sessions généré");
   };
 
-  const rapportDeclarations = async () => {
-    setLoad("declarations",true);
-    await new Promise(r=>setTimeout(r,400));
-    exportCSV(`declarations_manuelles_${new Date().toISOString().slice(0,10)}.csv`,
-      ["ID","Type","Statut","Date soumission","DPO","Responsable","Traitement ID"],
-      declsManuelles.map(d => `${d.idDeclaration},"${d.typeDeclaration||""}","${d.statut||""}","${d.dateSoumission||""}","${d.dpoNomPrenom||""}","${d.responsableDeclaration||""}",${d.traitementId||""}`)
+  const rapportSessionsPDF = () => {
+    exportTablePDF("Rapport des Sessions",
+      ["ID","Nom","Lieu","Type","Statut","Début","Fin","Traitements","DPO"],
+      sessions.map(s => [s.idSession, s.nomSession||"—", s.lieu, s.typeCollecte, s.statutSession,
+        s.dateDebut?.split("T")[0]||"—", s.dateFin?.split("T")[0]||"—", s.nombreTraitements, s.dpoNomComplet||"—"])
     );
-    setLoad("declarations",false);
-    toast.success("Export déclarations généré");
   };
 
-  const rapportTraitements = async () => {
-    setLoad("traitements",true);
+  // ── DÉCLARATIONS ──────────────────────────────────────
+  const rapportDeclarationsExcel = () => {
+    setLoad("declarationsXlsx",true);
+    exportExcel(`declarations_manuelles_${new Date().toISOString().slice(0,10)}.xlsx`, "Déclarations",
+      declsManuelles.map(d => ({
+        ID:d.idDeclaration, Type:d.typeDeclaration||"", Statut:d.statut||"",
+        "Date soumission":d.dateSoumission||"", DPO:d.dpoNomPrenom||"",
+        Responsable:d.responsableDeclaration||"", "Traitement ID":d.traitementId||""
+      }))
+    );
+    setLoad("declarationsXlsx",false);
+    toast.success("Export Excel des déclarations généré");
+  };
+
+  const rapportDeclarationsPDF = () => {
+    exportTablePDF("Rapport des Déclarations",
+      ["ID","Type","Statut","Soumission","DPO","Responsable","Traitement"],
+      declsManuelles.map(d => [d.idDeclaration, d.typeDeclaration||"—", d.statut||"—", d.dateSoumission||"—",
+        d.dpoNomPrenom||"—", d.responsableDeclaration||"—", d.traitementId?`#${d.traitementId}`:"—"])
+    );
+  };
+
+  // ── TRAITEMENTS ───────────────────────────────────────
+  const fetchEnvoyesDpo = async () => {
+    const r = await fetch(`${BASE}/traitements`, { headers:authH() });
+    const traitements = r.ok ? await r.json() : [];
+    return traitements.filter(t => t.envoyeAuDpo);
+  };
+
+  const rapportTraitementsExcel = async () => {
+    setLoad("traitementsXlsx",true);
     try {
-      const r = await fetch(`${BASE}/traitements`, { headers:authH() });
-      const traitements = r.ok ? await r.json() : [];
-      const envoyesDpo = traitements.filter(t => t.envoyeAuDpo);
-      exportCSV(`traitements_dpo_${new Date().toISOString().slice(0,10)}.csv`,
-        ["Traitement ID","Nom","Département","Conservation","Statut","Session ID","Date envoi DPO","Utilisateur Métier"],
-        envoyesDpo.map(t => `${t.idTraitement},"${t.nom||t.description||""}","${t.department||""}",${t.dureeConservation||""},"${t.statut||""}",${t.sessionCollecteId||""},"${t.dateEnvoiDpo?.split("T")[0]||""}","${t.utilisateurMetierNom||""}"`)
+      const envoyesDpo = await fetchEnvoyesDpo();
+      exportExcel(`traitements_dpo_${new Date().toISOString().slice(0,10)}.xlsx`, "Traitements",
+        envoyesDpo.map(t => ({
+          "Traitement ID":t.idTraitement, Nom:t.nom||t.description||"", Département:t.department||"",
+          Conservation:t.dureeConservation||"", Statut:t.statut||"", "Session ID":t.sessionCollecteId||"",
+          "Date envoi DPO":t.dateEnvoiDpo?.split("T")[0]||"", "Utilisateur Métier":t.utilisateurMetierNom||""
+        }))
       );
-      toast.success(`${envoyesDpo.length} traitement(s) exporté(s)`);
-    } catch { toast.error("Erreur lors du rapport traitements"); }
-    finally { setLoad("traitements",false); }
+      toast.success(`${envoyesDpo.length} traitement(s) exporté(s) en Excel`);
+    } catch { toast.error("Erreur export Excel traitements"); }
+    finally { setLoad("traitementsXlsx",false); }
   };
 
-  const rapportPDFTous = async () => {
+  const rapportTraitementsPDF = async () => {
+    setLoad("traitementsPdf",true);
+    try {
+      const envoyesDpo = await fetchEnvoyesDpo();
+      exportTablePDF("Rapport des Traitements",
+        ["ID","Nom","Département","Conservation","Statut","Session","Envoi DPO"],
+        envoyesDpo.map(t => [t.idTraitement, t.nom||t.description||"—", t.department||"—", t.dureeConservation||"—",
+          t.statut||"—", t.sessionCollecteId||"—", t.dateEnvoiDpo?.split("T")[0]||"—"])
+      );
+    } catch { toast.error("Erreur export PDF traitements"); }
+    finally { setLoad("traitementsPdf",false); }
+  };
+
+  // ── PDF déclaration individuelle (dernière déclaration manuelle) ──────
+  const rapportPDFDerniere = async () => {
     if (declsManuelles.length===0) { toast.error("Aucune déclaration manuelle à exporter"); return; }
-    setLoad("pdfTous",true);
+    setLoad("pdfDerniere",true);
     await new Promise(r=>setTimeout(r,300));
     exportDeclarationPDF(declsManuelles[0], null);
-    setLoad("pdfTous",false);
+    setLoad("pdfDerniere",false);
     toast.success(`PDF généré pour la déclaration #${declsManuelles[0].idDeclaration}`);
   };
 
@@ -1829,17 +1981,22 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
     { label:"En attente DG",    value:declsManuelles.filter(d=>d.statut==="EN_ATTENTE"||d.statut==="EN_ATTENTE_DG").length, color:T.yellow, bg:T.yellowBg },
   ];
 
-  // Boutons colorés selon le type d'export (plus de noir)
+  // Chaque carte propose 2 formats : Excel (Microsoft Office) / PDF
   const exportCards = [
-    { key:"sessions",     title:"Sessions",          desc:"Toutes les sessions avec statuts, lieux et nombre de traitements associés.",          Icon:FolderOpen, color:T.blue,   bg:T.blueBg,   btnColor:T.blue,   action:rapportSessions,    label:"Export CSV" },
-    { key:"declarations", title:"Déclarations",      desc:"Déclarations manuelles soumises par le DPO avec type, statut et date de soumission.", Icon:FileText,   color:T.green,  bg:T.greenBg,  btnColor:T.green,  action:rapportDeclarations, label:"Export CSV" },
-    { key:"traitements",  title:"Traitements reçus", desc:"Tous les traitements envoyés au DPO, leur session d'origine et leur statut.",         Icon:Cpu,        color:T.purple, bg:T.purpleBg, btnColor:T.purple, action:rapportTraitements,  label:"Export CSV" },
-    { key:"pdfTous",      title:"PDF Déclaration",   desc:"Exporte la dernière déclaration manuelle en PDF complet avec toutes les sections.",   Icon:Download,   color:T.gold,   bg:T.goldLight,btnColor:T.gold,   action:rapportPDFTous,     label:"Export PDF" },
+    { title:"Sessions",          desc:"Toutes les sessions avec statuts, lieux et nombre de traitements associés.",
+      Icon:FolderOpen, color:T.blue, bg:T.blueBg,
+      xlsx:{ fn:rapportSessionsExcel, key:"sessionsXlsx" }, pdf:{ fn:rapportSessionsPDF, key:"sessionsPdf" } },
+    { title:"Déclarations",      desc:"Déclarations manuelles soumises par le DPO avec type, statut et date de soumission.",
+      Icon:FileText, color:T.green, bg:T.greenBg,
+      xlsx:{ fn:rapportDeclarationsExcel, key:"declarationsXlsx" }, pdf:{ fn:rapportDeclarationsPDF, key:"declarationsPdf" } },
+    { title:"Traitements reçus", desc:"Tous les traitements envoyés au DPO, leur session d'origine et leur statut.",
+      Icon:Cpu, color:T.purple, bg:T.purpleBg,
+      xlsx:{ fn:rapportTraitementsExcel, key:"traitementsXlsx" }, pdf:{ fn:rapportTraitementsPDF, key:"traitementsPdf" } },
   ];
 
   return (
     <div className="slide-in">
-      <PageHeader title="Rapports & Export" subtitle="Exportez vos données en CSV ou générez des PDF complets"/>
+      <PageHeader title="Rapports & Export" subtitle="Exportez vos données en CSV, Excel (Microsoft Office) ou PDF"/>
 
       <div style={{ display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:12,marginBottom:20 }}>
         {statsCards.map((s,i) => (
@@ -1856,19 +2013,42 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
 
       <div style={{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:14,marginBottom:20 }}>
         {exportCards.map(c => (
-          <Card key={c.key} className="card-hover" style={{ padding:22 }}>
+          <Card key={c.title} className="card-hover" style={{ padding:22 }}>
             <div style={{ width:46,height:46,borderRadius:12,background:c.bg,display:"flex",alignItems:"center",justifyContent:"center",color:c.color,marginBottom:14 }}><c.Icon size={20} strokeWidth={1.6}/></div>
             <div style={{ fontSize:14,fontWeight:700,color:T.textPrimary,marginBottom:5 }}>{c.title}</div>
             <div style={{ fontSize:12,color:T.textSecondary,marginBottom:18,lineHeight:1.55 }}>{c.desc}</div>
-            <button
-              onClick={c.action}
-              disabled={!!loading[c.key]}
-              style={{ width:"100%",padding:"9px 16px",borderRadius:8,border:"none",background:c.btnColor,color:"#fff",fontSize:13,fontWeight:600,cursor:loading[c.key]?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,opacity:loading[c.key]?0.6:1,transition:"opacity 0.15s" }}
-            >
-              {loading[c.key]?<><Spinner/> Génération…</>:<><Download size={13}/> {c.label}</>}
-            </button>
+            <div style={{ display:"flex", gap:8 }}>
+              <button
+                onClick={c.xlsx.fn}
+                disabled={!!loading[c.xlsx.key]}
+                style={{ flex:1,padding:"9px 10px",borderRadius:8,border:"none",background:T.green,color:"#fff",fontSize:12,fontWeight:600,cursor:loading[c.xlsx.key]?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,opacity:loading[c.xlsx.key]?0.6:1 }}
+              >
+                {loading[c.xlsx.key]?<Spinner size={12}/>:<Download size={12}/>} Excel
+              </button>
+              <button
+                onClick={c.pdf.fn}
+                disabled={!!loading[c.pdf.key]}
+                style={{ flex:1,padding:"9px 10px",borderRadius:8,border:"none",background:c.color,color:"#fff",fontSize:12,fontWeight:600,cursor:loading[c.pdf.key]?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,opacity:loading[c.pdf.key]?0.6:1 }}
+              >
+                {loading[c.pdf.key]?<Spinner size={12}/>:<Download size={12}/>} PDF
+              </button>
+            </div>
           </Card>
         ))}
+
+        {/* Carte dédiée : PDF détaillé de la dernière déclaration manuelle */}
+        <Card className="card-hover" style={{ padding:22 }}>
+          <div style={{ width:46,height:46,borderRadius:12,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",color:T.gold,marginBottom:14 }}><Download size={20} strokeWidth={1.6}/></div>
+          <div style={{ fontSize:14,fontWeight:700,color:T.textPrimary,marginBottom:5 }}>PDF Déclaration détaillée</div>
+          <div style={{ fontSize:12,color:T.textSecondary,marginBottom:18,lineHeight:1.55 }}>Exporte la dernière déclaration manuelle en PDF complet avec toutes les sections (identité, sécurité, droits…).</div>
+          <button
+            onClick={rapportPDFDerniere}
+            disabled={!!loading.pdfDerniere}
+            style={{ width:"100%",padding:"9px 16px",borderRadius:8,border:"none",background:T.gold,color:"#fff",fontSize:13,fontWeight:600,cursor:loading.pdfDerniere?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,opacity:loading.pdfDerniere?0.6:1 }}
+          >
+            {loading.pdfDerniere?<><Spinner/> Génération…</>:<><Download size={13}/> Export PDF</>}
+          </button>
+        </Card>
       </div>
 
       {declsManuelles.length>0 && (
@@ -1909,6 +2089,19 @@ export default function Tb_Dpo() {
   const [sessions,     setSessions]     = useState([]);
   const [declarations, setDeclarations] = useState([]);
   const [notifCount,   setNotifCount]   = useState(0);
+  // Session cliquée via "Voir traitements" — présélectionnée dans la section Traitements
+  const [selectedSessionId, setSelectedSessionId] = useState(null);
+
+  // Empêche le polling de réécrire notifCount pendant que le panneau
+  // de notifications est ouvert (corrige le badge qui "revenait" après ouverture).
+  const notifsOpenRef = useRef(false);
+
+  // Suivi des déclarations "vues" pour que le badge rouge de la sidebar
+  // se remette à zéro une fois la section "Déclarations" consultée,
+  // même si elles restent EN_ATTENTE côté backend. Persisté en localStorage.
+  const [declSeenIds, setDeclSeenIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("declSeenIds")||"[]")); } catch { return new Set(); }
+  });
 
   const [dpoInfo, setDpoInfo] = useState(() => {
     const token = localStorage.getItem("token");
@@ -1917,24 +2110,41 @@ export default function Tb_Dpo() {
     return { nom:localStorage.getItem("dpoNom")||p.nom||"DPO", prenom:localStorage.getItem("dpoPrenom")||p.prenom||"", id:p.userId||null };
   });
 
-  useEffect(() => {
-    if (!dpoInfo.id) return;
-    const fetchCount = async () => {
-      try {
-        const r = await fetch(`${BASE}/notifications/${dpoInfo.id}/non-lues`, { headers:authH() });
-        if (!r.ok) return;
-        const data = await r.json();
-        setNotifCount(data.length);
-      } catch {}
-    };
-    fetchCount();
-    const iv = setInterval(fetchCount, 30000);
-    return () => clearInterval(iv);
+  const fetchNotifCount = useCallback(async () => {
+    if (!dpoInfo.id || notifsOpenRef.current) return;
+    try {
+      const r = await fetch(`${BASE}/notifications/${dpoInfo.id}/non-lues`, { headers: authH() });
+      if (!r.ok) return;
+      const data = await r.json();
+      setNotifCount(data.length);
+    } catch {}
   }, [dpoInfo.id]);
 
-  const declEnAttente = declarations.filter(d =>
+  useEffect(() => {
+    if (!dpoInfo.id) return;
+    fetchNotifCount();
+    const iv = setInterval(fetchNotifCount, 30000);
+    return () => clearInterval(iv);
+  }, [dpoInfo.id, fetchNotifCount]);
+
+  const declEnAttenteList = declarations.filter(d =>
     (d.statut==="EN_ATTENTE" || d.statut==="EN_ATTENTE_DG") && estDeclarationManuelle(d)
-  ).length;
+  );
+  const declEnAttente = declEnAttenteList.filter(d => !declSeenIds.has(d.idDeclaration)).length;
+
+  const markDeclarationsSeen = () => {
+    setDeclSeenIds(prev => {
+      const next = new Set(prev);
+      declEnAttenteList.forEach(d => next.add(d.idDeclaration));
+      localStorage.setItem("declSeenIds", JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  const handleSetSection = (s) => {
+    setSection(s);
+    if (s === "declarations") markDeclarationsSeen();
+  };
 
   return (
     <div style={{ display:"flex",flexDirection:"column",height:"100vh",fontFamily:"'Instrument Sans','DM Sans',system-ui,sans-serif",overflow:"hidden" }}>
@@ -1953,14 +2163,22 @@ export default function Tb_Dpo() {
         @keyframes spin{to{transform:rotate(360deg)}}
       `}</style>
 
-      <TopBar onToggle={() => setCollapsed(c=>!c)} userId={dpoInfo.id} notifCount={notifCount} setNotifCount={setNotifCount} dpoInfo={dpoInfo}/>
+      <TopBar
+        onToggle={() => setCollapsed(c=>!c)}
+        userId={dpoInfo.id}
+        notifCount={notifCount}
+        setNotifCount={setNotifCount}
+        dpoInfo={dpoInfo}
+        notifsOpenRef={notifsOpenRef}
+        onPanelClose={fetchNotifCount}
+      />
 
       <div style={{ display:"flex",flex:1,overflow:"hidden" }}>
-        <Sidebar active={section} setActive={setSection} collapsed={collapsed} dpoInfo={dpoInfo} declEnAttente={declEnAttente}/>
+        <Sidebar active={section} setActive={handleSetSection} collapsed={collapsed} dpoInfo={dpoInfo} declEnAttente={declEnAttente}/>
         <main style={{ flex:1,overflow:"auto",padding:"24px 28px",background:T.mainBg }}>
-          {section==="dashboard"    && <SectionDashboard   sessions={sessions} declarations={declarations} setSection={setSection} dpoInfo={dpoInfo}/>}
-          {section==="sessions"     && <SectionSessions    sessions={sessions} setSessions={setSessions} setSection={setSection} setSelectedSession={() => {}}/>}
-          {section==="traitements"  && <SectionTraitements declarations={declarations} setDeclarations={setDeclarations} sessions={sessions} dpoInfo={dpoInfo}/>}
+          {section==="dashboard"    && <SectionDashboard   sessions={sessions} declarations={declarations} setSection={handleSetSection} dpoInfo={dpoInfo}/>}
+          {section==="sessions"     && <SectionSessions    sessions={sessions} setSessions={setSessions} setSection={handleSetSection} setSelectedSession={setSelectedSessionId}/>}
+          {section==="traitements"  && <SectionTraitements declarations={declarations} setDeclarations={setDeclarations} sessions={sessions} dpoInfo={dpoInfo} initialSessionId={selectedSessionId}/>}
           {section==="declarations" && <SectionDeclarations declarations={declarations} setDeclarations={setDeclarations} dpoInfo={dpoInfo}/>}
           {section==="rapports"     && <SectionRapports    sessions={sessions} declarations={declarations} dpoInfo={dpoInfo}/>}
         </main>
