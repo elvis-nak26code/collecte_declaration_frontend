@@ -12,8 +12,12 @@ import {
   ArrowUpRight, CheckCircle2, XCircle, Loader2,
   User, UserPlus, UserCheck, Users, ListPlus, Archive,
   BookOpen, PackageOpen, MoveRight, CheckSquare, Square,
-  MessageSquare, AlertTriangle, ClipboardList, Pencil
+  MessageSquare, AlertTriangle, ClipboardList, Pencil,
+  MapPin, ShieldCheck, FileDown, FileSpreadsheet as FileXls
 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 
 // ═══════════════════════════════════════════════════════
 //  CONFIG
@@ -155,6 +159,111 @@ const ErrorBanner = ({ message }) => (
     </div>
   </Card>
 );
+
+// ═══════════════════════════════════════════════════════
+//  EXPORT PDF / EXCEL — utilitaires
+// ═══════════════════════════════════════════════════════
+const exportEntetePdf = (doc, titre, sousLignes = []) => {
+  doc.setFillColor(13, 43, 31);
+  doc.rect(0, 0, doc.internal.pageSize.getWidth(), 22, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.text("SOFITEX — Conformité des données", 14, 10);
+  doc.setFontSize(15);
+  doc.text(titre, 14, 18);
+  doc.setTextColor(30, 30, 30);
+  let y = 30;
+  sousLignes.forEach(l => { doc.setFontSize(10); doc.text(l, 14, y); y += 6; });
+  return y + 2;
+};
+
+const exportSessionPdf = (session, traitements) => {
+  const doc = new jsPDF();
+  const y = exportEntetePdf(doc, session.nomSession || `Session #${session.idSession}`, [
+    `Statut : ${session.statutSession || "-"}   |   Type : ${session.typeCollecte || "-"}`,
+    `Lieu : ${session.lieu || "-"}   |   DPO : ${session.dpoNomComplet || "-"}`,
+    `Période : ${session.dateDebut?.split("T")[0] || "-"} → ${session.dateFin?.split("T")[0] || "en cours"}`,
+  ]);
+  autoTable(doc, {
+    startY: y,
+    head: [["#", "Traitement", "Département", "Entrées", "Conservation", "Envoyé DPO"]],
+    body: traitements.map(t => [
+      t.idTraitement, t.nom || t.description || "-", t.department || "-",
+      t.nombreDonnee ?? 0, t.dureeConservation ? `${t.dureeConservation} mois` : "-", t.envoyeAuDpo ? "Oui" : "Non",
+    ]),
+    styles: { fontSize: 9 }, headStyles: { fillColor: [26, 92, 42] },
+  });
+  doc.save(`session_${session.idSession}.pdf`);
+};
+
+const exportSessionExcel = (session, traitements) => {
+  const wb = XLSX.utils.book_new();
+  const wsInfo = XLSX.utils.json_to_sheet([{
+    Session: session.nomSession || `Session #${session.idSession}`, Statut: session.statutSession,
+    Type: session.typeCollecte, Lieu: session.lieu, DPO: session.dpoNomComplet,
+    Debut: session.dateDebut?.split("T")[0] || "-", Fin: session.dateFin?.split("T")[0] || "en cours",
+  }]);
+  XLSX.utils.book_append_sheet(wb, wsInfo, "Session");
+  const wsT = XLSX.utils.json_to_sheet(traitements.map(t => ({
+    ID: t.idTraitement, Nom: t.nom || t.description || "-", Departement: t.department || "-",
+    Entrees: t.nombreDonnee ?? 0, ConservationMois: t.dureeConservation ?? "-", EnvoyeDPO: t.envoyeAuDpo ? "Oui" : "Non",
+  })));
+  XLSX.utils.book_append_sheet(wb, wsT, "Traitements");
+  XLSX.writeFile(wb, `session_${session.idSession}.xlsx`);
+};
+
+const exportTraitementPdf = (traitement, donnees) => {
+  const doc = new jsPDF();
+  const y = exportEntetePdf(doc, traitement.nom || traitement.description || `Traitement #${traitement.idTraitement}`, [
+    `Département : ${traitement.department || "-"}   |   Conservation : ${traitement.dureeConservation ? `${traitement.dureeConservation} mois` : "-"}`,
+    `Envoyé au DPO : ${traitement.envoyeAuDpo ? "Oui" : "Non"}   |   Nombre de données : ${donnees.length}`,
+  ]);
+  autoTable(doc, {
+    startY: y,
+    head: [["#", "Personne", "Type de donnée", "Valeur", "Sensible", "Date"]],
+    body: donnees.map(d => [
+      d.idDonnee, d.personneNomComplet || d.usagerNomComplet || "-", d.typeDonneeNom || "-",
+      d.valeur, d.typeDonneeSensible ? "Oui" : "Non", d.dateCollecte?.split("T")[0] || "-",
+    ]),
+    styles: { fontSize: 8 }, headStyles: { fillColor: [26, 92, 42] },
+  });
+  doc.save(`traitement_${traitement.idTraitement}.pdf`);
+};
+
+const exportTraitementExcel = (traitement, donnees) => {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(donnees.map(d => ({
+    ID: d.idDonnee, Personne: d.personneNomComplet || d.usagerNomComplet || "-", Type: d.typeDonneeNom || "-",
+    Valeur: d.valeur, Sensible: d.typeDonneeSensible ? "Oui" : "Non", Date: d.dateCollecte?.split("T")[0] || "-",
+  })));
+  XLSX.utils.book_append_sheet(wb, ws, "Données");
+  XLSX.writeFile(wb, `traitement_${traitement.idTraitement}.xlsx`);
+};
+
+const exportDemandesPdf = (demandes) => {
+  const doc = new jsPDF();
+  const y = exportEntetePdf(doc, "Demandes citoyens", [`Nombre de demandes : ${demandes.length}`]);
+  autoTable(doc, {
+    startY: y,
+    head: [["#", "Type", "Statut", "Citoyen", "Donnée", "Date"]],
+    body: demandes.map(d => [
+      d.idDemande, d.typeDemande, d.statutDemande, d.usagerNomComplet || d.personneNomComplet || "-",
+      d.donneeValeur || "-", d.dateDemande || "-",
+    ]),
+    styles: { fontSize: 9 }, headStyles: { fillColor: [26, 92, 42] },
+  });
+  doc.save(`demandes.pdf`);
+};
+
+const exportDemandesExcel = (demandes) => {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(demandes.map(d => ({
+    ID: d.idDemande, Type: d.typeDemande, Statut: d.statutDemande,
+    Citoyen: d.usagerNomComplet || d.personneNomComplet || "-", Donnee: d.donneeValeur || "-", Date: d.dateDemande || "-",
+  })));
+  XLSX.utils.book_append_sheet(wb, ws, "Demandes");
+  XLSX.writeFile(wb, `demandes.xlsx`);
+};
 
 // ═══════════════════════════════════════════════════════
 //  PANNEAU NOTIFICATIONS — bug compteur corrigé
@@ -320,6 +429,20 @@ const Sidebar = ({ active, setActive, collapsed, userName, userService, userInit
 };
 
 // ═══════════════════════════════════════════════════════
+//  LOGO SOFITEX
+// ═══════════════════════════════════════════════════════
+const LogoMark = ({ size = 30 }) => (
+  <div style={{
+    width: size, height: size, borderRadius: 8, flexShrink: 0,
+    background: "linear-gradient(135deg, #1A5C2A 0%, #0D2B1F 100%)",
+    border: `1px solid ${T.goldBorder}`, display: "flex", alignItems: "center", justifyContent: "center",
+    boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+  }}>
+    <ShieldCheck size={size * 0.6} color={T.gold} strokeWidth={2} />
+  </div>
+);
+
+// ═══════════════════════════════════════════════════════
 //  TOPBAR — sans rectangle utilisateur, cloche corrigée
 // ═══════════════════════════════════════════════════════
 const TopBar = ({ onToggle, userId }) => {
@@ -344,8 +467,11 @@ const TopBar = ({ onToggle, userId }) => {
         <button onClick={onToggle} style={{ background: "transparent", border: "none", color: T.sidebarText, cursor: "pointer", padding: 6, borderRadius: 6, display: "flex" }}>
           <Menu size={18} />
         </button>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#E2E8F0", letterSpacing: "0.04em" }}>
-          SOFITEX — Espace Utilisateur Métier
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <LogoMark />
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#E2E8F0", letterSpacing: "0.04em" }}>
+            SOFITEX — Espace Utilisateur Métier
+          </div>
         </div>
       </div>
 
@@ -512,7 +638,7 @@ const SectionDashboard = ({ setSection, setSelectedSession, userId, userName }) 
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : SESSIONS DE COLLECTE — style revu, boutons verts
+//  SECTION : SESSIONS DE COLLECTE — cards distinctes (accent latéral + icônes rondes)
 // ═══════════════════════════════════════════════════════
 const SectionSessions = ({ setSection, setSelectedSession }) => {
   const [sessions, setSessions] = useState([]);
@@ -538,7 +664,7 @@ const SectionSessions = ({ setSection, setSelectedSession }) => {
     ANNULEE:  { color: T.gray,  bg: T.grayBg,  border: T.grayBorder },
   };
 
-  const typeEmoji = { EN_LIGNE: "🌐", TERRAIN: "📍", entrepot: "🏭" };
+  const typeIcon = { EN_LIGNE: Globe, TERRAIN: MapPin, entrepot: Archive };
 
   return (
     <div className="slide-in">
@@ -558,39 +684,41 @@ const SectionSessions = ({ setSection, setSelectedSession }) => {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 16 }}>
           {filtered.map(s => {
             const si = statutInfo[s.statutSession] || statutInfo.ANNULEE;
-            const isActive = s.statutSession === "EN_COURS";
+            const TypeIcon = typeIcon[s.typeCollecte] || FolderOpen;
             return (
-              <Card key={s.idSession} style={{ padding: 0, overflow: "hidden" }}>
-                <div style={{ height: 4, background: si.color }} />
-                <div style={{ padding: "20px 22px" }}>
+              <Card key={s.idSession} style={{ padding: 0, overflow: "hidden", display: "flex" }}>
+                {/* Accent latéral — différencie visuellement des cartes "traitement" */}
+                <div style={{ width: 5, flexShrink: 0, background: si.color }} />
+                <div style={{ padding: "18px 20px", flex: 1, minWidth: 0 }}>
                   {/* En-tête de la card */}
-                  <div style={{ display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 18 }}>
-                    <div style={{ width: 50, height: 50, borderRadius: 14, background: si.bg, border: `1.5px solid ${si.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>
-                      {typeEmoji[s.typeCollecte] || "📁"}
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 16 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: "50%", background: si.bg, border: `1.5px solid ${si.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <TypeIcon size={19} color={si.color} strokeWidth={1.8} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: T.textPrimary, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {s.nomSession || `Session #${s.idSession}`}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ fontSize: 14.5, fontWeight: 700, color: T.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {s.nomSession || `Session #${s.idSession}`}
+                        </div>
+                        <span style={{ fontSize: 10, color: T.textMuted, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>#{s.idSession}</span>
                       </div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
                         <Badge type={s.statutSession} />
                         {s.typeCollecte && <Badge type={s.typeCollecte} />}
-                        <span style={{ fontSize: 10, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>#{s.idSession}</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Grille d'infos */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16, padding: "12px 14px", background: T.grayBg, borderRadius: 10 }}>
+                  {/* Bandeau de stats — pilules horizontales (distinct de la grille 2x2 des traitements) */}
+                  <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
                     {[
-                      { label: "📍 Lieu",         value: s.lieu || "—" },
-                      { label: "👤 DPO",           value: s.dpoNomComplet || "—" },
-                      { label: "📅 Début",         value: s.dateDebut?.split("T")[0] || "—" },
-                      { label: "🔧 Traitements",   value: `${s.nombreTraitements ?? 0}` },
+                      { label: "Lieu",         value: s.lieu || "—" },
+                      { label: "DPO",          value: s.dpoNomComplet || "—" },
+                      { label: "Traitements",  value: `${s.nombreTraitements ?? 0}` },
                     ].map(({ label, value }) => (
-                      <div key={label}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>{label}</div>
-                        <div style={{ fontSize: 12.5, fontWeight: 600, color: T.textSecondary }}>{value}</div>
+                      <div key={label} style={{ flex: 1, padding: "8px 10px", background: T.grayBg, borderRadius: 9, textAlign: "center", minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: T.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
+                        <div style={{ fontSize: 9.5, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 1 }}>{label}</div>
                       </div>
                     ))}
                   </div>
@@ -601,18 +729,19 @@ const SectionSessions = ({ setSection, setSelectedSession }) => {
                     </p>
                   )}
 
-                  {s.statutSession !== "ANNULEE" ? (
-                    <Btn
-                      variant="success"
-                      onClick={() => { setSelectedSession(String(s.idSession)); setSection("traitements"); }}
-                      style={{ width: "100%", justifyContent: "center" }}>
-                      <Eye size={13} /> Voir les traitements
-                    </Btn>
-                  ) : (
-                    <div style={{ textAlign: "center", fontSize: 12, color: T.textMuted, fontStyle: "italic", padding: "8px 0", background: T.grayBg, borderRadius: 8 }}>
-                      Session annulée — consultation désactivée
-                    </div>
-                  )}
+                  <div style={{ display: "flex", gap: 8, borderTop: `1px solid ${T.cardBorder}`, paddingTop: 12 }}>
+                    <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace", alignSelf: "center" }}>{s.dateDebut?.split("T")[0] || ""}</span>
+                    <div style={{ flex: 1 }} />
+                    <Btn onClick={() => exportSessionPdf(s, [])} style={{ fontSize: 11, padding: "5px 10px" }} title="Export PDF"><FileDown size={12} /> PDF</Btn>
+                    <Btn onClick={() => exportSessionExcel(s, [])} style={{ fontSize: 11, padding: "5px 10px" }} title="Export Excel"><FileXls size={12} /> Excel</Btn>
+                    {s.statutSession !== "ANNULEE" ? (
+                      <Btn variant="success" onClick={() => { setSelectedSession(String(s.idSession)); setSection("traitements"); }} style={{ fontSize: 11, padding: "5px 12px" }}>
+                        <Eye size={12} /> Traitements
+                      </Btn>
+                    ) : (
+                      <span style={{ fontSize: 11, color: T.textMuted, fontStyle: "italic", alignSelf: "center" }}>Annulée</span>
+                    )}
+                  </div>
                 </div>
               </Card>
             );
@@ -989,7 +1118,7 @@ const ModalCreerTraitement = ({ sessionId, userId, onClose, onSave, traitementEx
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : TRAITEMENTS (avec bouton modifier)
+//  SECTION : TRAITEMENTS (avec bouton modifier + export PDF/Excel)
 // ═══════════════════════════════════════════════════════
 const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement, userId }) => {
   const [showModal,       setShowModal]       = useState(false);
@@ -998,6 +1127,7 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
   const [session,         setSession]         = useState(null);
   const [loading,         setLoading]         = useState(true);
   const [error,           setError]           = useState("");
+  const [exportingId,     setExportingId]     = useState(null);
 
   useEffect(() => {
     if (!selectedSession) return;
@@ -1031,6 +1161,16 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
     } catch (e) { toast.error(e.message || "Erreur"); }
   };
 
+  const handleExportTraitement = async (t, format) => {
+    setExportingId(`${t.idTraitement}-${format}`);
+    try {
+      const donnees = await apiFetch(`/api/donnees/par-traitement?traitementId=${t.idTraitement}`);
+      if (format === "pdf") exportTraitementPdf(t, donnees);
+      else exportTraitementExcel(t, donnees);
+    } catch (e) { toast.error(e.message || "Erreur lors de l'export"); }
+    finally { setExportingId(null); }
+  };
+
   if (!selectedSession) return (
     <div className="slide-in">
       <PageHeader title="Traitements" subtitle="Sélectionnez une session">
@@ -1039,6 +1179,8 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
       <EmptyState icon={FolderOpen} message="Aucune session sélectionnée." />
     </div>
   );
+
+  const sessionCloturee = session && session.statutSession !== "EN_COURS";
 
   return (
     <div className="slide-in">
@@ -1068,11 +1210,27 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
               </div>
             )}
           </div>
-          {session?.statutSession === "EN_COURS" && (
-            <Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={13} /> Nouveau traitement</Btn>
-          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            {session && (
+              <>
+                <Btn onClick={() => exportSessionPdf(session, traitements)}><FileDown size={13} /> Export PDF</Btn>
+                <Btn onClick={() => exportSessionExcel(session, traitements)}><FileXls size={13} /> Export Excel</Btn>
+              </>
+            )}
+            {session?.statutSession === "EN_COURS" && (
+              <Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={13} /> Nouveau traitement</Btn>
+            )}
+          </div>
         </div>
       </div>
+
+      {sessionCloturee && (
+        <Card style={{ padding: "10px 16px", marginBottom: 16, background: T.yellowBg, border: `1px solid ${T.yellowBorder}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: T.yellow }}>
+            <Lock size={14} /> Cette session est clôturée ({session?.statutSession}) — les traitements ne peuvent plus être modifiés ni recevoir de nouvelles données.
+          </div>
+        </Card>
+      )}
 
       {loading && <Card style={{ padding: 40, textAlign: "center" }}><Spinner dark /></Card>}
       {!loading && error && <ErrorBanner message={error} />}
@@ -1088,7 +1246,7 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
       {!loading && !error && traitements.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 14 }}>
           {traitements.map(t => {
-            const peutModifier = !t.envoyeAuDpo;
+            const peutModifier = !t.envoyeAuDpo && !sessionCloturee;
             return (
               <Card key={t.idTraitement} style={{ padding: 20 }}>
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
@@ -1129,9 +1287,15 @@ const SectionTraitements = ({ selectedSession, setSection, setSelectedTraitement
                 <div style={{ display: "flex", gap: 8, borderTop: `1px solid ${T.cardBorder}`, paddingTop: 12, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace", alignSelf: "center" }}>{t.dateCreation?.split("T")[0] ?? ""}</span>
                   <div style={{ flex: 1 }} />
-                  {!t.envoyeAuDpo && <Btn onClick={() => handleEnvoyerDpo(t.idTraitement)} style={{ fontSize: 11, padding: "5px 12px" }}><ArrowUpRight size={12} /> Envoyer DPO</Btn>}
+                  <Btn onClick={() => handleExportTraitement(t, "pdf")} disabled={exportingId === `${t.idTraitement}-pdf`} style={{ fontSize: 11, padding: "5px 10px" }} title="Export PDF">
+                    {exportingId === `${t.idTraitement}-pdf` ? <Spinner dark /> : <FileDown size={12} />} PDF
+                  </Btn>
+                  <Btn onClick={() => handleExportTraitement(t, "excel")} disabled={exportingId === `${t.idTraitement}-excel`} style={{ fontSize: 11, padding: "5px 10px" }} title="Export Excel">
+                    {exportingId === `${t.idTraitement}-excel` ? <Spinner dark /> : <FileXls size={12} />} Excel
+                  </Btn>
+                  {!t.envoyeAuDpo && !sessionCloturee && <Btn onClick={() => handleEnvoyerDpo(t.idTraitement)} style={{ fontSize: 11, padding: "5px 12px" }}><ArrowUpRight size={12} /> Envoyer DPO</Btn>}
                   <Btn onClick={() => { setSelectedTraitement(t.idTraitement); setSection("donnees"); }} style={{ fontSize: 11, padding: "5px 12px" }}><Database size={12} /> Données</Btn>
-                  <Btn variant="success" onClick={() => { setSelectedTraitement(t.idTraitement); setSection("donnees"); }} style={{ fontSize: 11, padding: "5px 12px" }}><Plus size={12} /> Saisir</Btn>
+                  {!sessionCloturee && <Btn variant="success" onClick={() => { setSelectedTraitement(t.idTraitement); setSection("donnees"); }} style={{ fontSize: 11, padding: "5px 12px" }}><Plus size={12} /> Saisir</Btn>}
                 </div>
               </Card>
             );
@@ -1262,7 +1426,7 @@ const PersonnePicker = ({ selectedPersonne, onSelect, onClear }) => {
 // ═══════════════════════════════════════════════════════
 //  ONGLET : SÉLECTION DEPUIS L'ENTREPÔT
 // ═══════════════════════════════════════════════════════
-const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
+const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee, disabled }) => {
   const [entrepot,   setEntrepot]   = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [search,     setSearch]     = useState("");
@@ -1288,19 +1452,20 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
     );
   });
 
-  const toggleSelect = (id) => setSelection(prev => {
+  const toggleSelect = (id) => { if (disabled) return; setSelection(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
-  });
+  }); };
 
   const toggleAll = () => {
+    if (disabled) return;
     if (selection.size === filtered.length) setSelection(new Set());
     else setSelection(new Set(filtered.map(d => d.idDonnee)));
   };
 
   const handleAttacher = async () => {
-    if (selection.size === 0 || !selectedTraitement) return;
+    if (disabled || selection.size === 0 || !selectedTraitement) return;
     setAttaching(true);
     try {
       const result = await apiFetch(
@@ -1318,6 +1483,11 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
 
   return (
     <Card style={{ overflow: "hidden" }}>
+      {disabled && (
+        <div style={{ padding: "10px 16px", background: T.yellowBg, borderBottom: `1px solid ${T.yellowBorder}`, display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: T.yellow }}>
+          <Lock size={13} /> Session clôturée — impossible d'attacher de nouvelles données à ce traitement.
+        </div>
+      )}
       <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.cardBorder}`, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Archive size={15} color={T.orange} />
@@ -1330,7 +1500,7 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
             style={{ width: "100%", paddingLeft: 30, paddingRight: 10, paddingTop: 7, paddingBottom: 7, borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 12, color: T.textPrimary, background: T.grayBg, outline: "none", fontFamily: "inherit" }} />
         </div>
         <Btn onClick={load} style={{ fontSize: 12, padding: "7px 10px" }}><RefreshCw size={12} /></Btn>
-        {selection.size > 0 && (
+        {selection.size > 0 && !disabled && (
           <Btn variant="success" onClick={handleAttacher} disabled={attaching} style={{ fontSize: 12, padding: "7px 14px" }}>
             {attaching ? <><Spinner /> Attachement...</> : <><MoveRight size={13} /> Ajouter {selection.size} au traitement</>}
           </Btn>
@@ -1348,7 +1518,7 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
         <>
           <div style={{ display: "grid", gridTemplateColumns: "36px 1fr 1fr 1fr 80px", gap: 0, padding: "8px 16px", background: T.grayBg, borderBottom: `1px solid ${T.cardBorder}` }}>
             <div style={{ display: "flex", alignItems: "center" }}>
-              <button onClick={toggleAll} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", color: T.textMuted }}>
+              <button onClick={toggleAll} disabled={disabled} style={{ background: "none", border: "none", cursor: disabled ? "not-allowed" : "pointer", padding: 0, display: "flex", color: T.textMuted, opacity: disabled ? 0.4 : 1 }}>
                 {selection.size === filtered.length && filtered.length > 0 ? <CheckSquare size={15} color={T.green} /> : <Square size={15} />}
               </button>
             </div>
@@ -1356,12 +1526,12 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
               <div key={h} style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</div>
             ))}
           </div>
-          <div style={{ maxHeight: 340, overflowY: "auto" }}>
+          <div style={{ maxHeight: 340, overflowY: "auto", opacity: disabled ? 0.6 : 1 }}>
             {filtered.map((d, i) => {
               const selected = selection.has(d.idDonnee);
               return (
                 <div key={d.idDonnee} onClick={() => toggleSelect(d.idDonnee)}
-                  style={{ display: "grid", gridTemplateColumns: "36px 1fr 1fr 1fr 80px", gap: 0, padding: "10px 16px", borderBottom: i < filtered.length - 1 ? `1px solid ${T.cardBorder}` : "none", background: selected ? T.greenBg : "transparent", cursor: "pointer", transition: "background 0.1s" }}
+                  style={{ display: "grid", gridTemplateColumns: "36px 1fr 1fr 1fr 80px", gap: 0, padding: "10px 16px", borderBottom: i < filtered.length - 1 ? `1px solid ${T.cardBorder}` : "none", background: selected ? T.greenBg : "transparent", cursor: disabled ? "not-allowed" : "pointer", transition: "background 0.1s" }}
                   className="row-hover">
                   <div style={{ display: "flex", alignItems: "center" }}>
                     {selected ? <CheckSquare size={15} color={T.green} /> : <Square size={15} color={T.textMuted} />}
@@ -1375,7 +1545,7 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
             })}
             {filtered.length === 0 && <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun résultat</div>}
           </div>
-          {selection.size > 0 && (
+          {selection.size > 0 && !disabled && (
             <div style={{ padding: "10px 16px", background: T.greenBg, borderTop: `1px solid ${T.greenBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 12, color: T.green, fontWeight: 600 }}>{selection.size} donnée(s) sélectionnée(s)</span>
               <div style={{ display: "flex", gap: 8 }}>
@@ -1393,9 +1563,122 @@ const DepuisEntrepot = ({ selectedTraitement, onDonneeAjoutee }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SAISIE MANUELLE
+//  SAISIE MANUELLE — dans un traitement
 // ═══════════════════════════════════════════════════════
-const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee }) => {
+const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee, disabled }) => {
+  const [typesDonnee, setTypesDonnee]   = useState([]);
+  const [loadingTypes, setLoadingTypes] = useState(true);
+  const [personne, setPersonne]         = useState(null);
+  const [typeDonneeId, setTypeDonneeId] = useState("");
+  const [valeur, setValeur]             = useState("");
+  const [panier, setPanier]             = useState([]);
+  const [envoi, setEnvoi]               = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoadingTypes(true);
+      try {
+        const t = await apiFetch("/api/types-donnee");
+        setTypesDonnee(t);
+        if (t.length > 0) setTypeDonneeId(String(t[0].idTypeDonnee));
+      } catch { toast.error("Impossible de charger les types de données"); }
+      finally { setLoadingTypes(false); }
+    };
+    load();
+  }, []);
+
+  const typeSelectionne = typesDonnee.find(t => String(t.idTypeDonnee) === String(typeDonneeId));
+
+  const ajouterAuPanier = () => {
+    if (disabled || !valeur.trim() || !typeDonneeId) return;
+    // Vérification doublon local dans le panier
+    const existeDeja = panier.some(l => l.typeDonneeId === typeDonneeId && l.valeur.toLowerCase() === valeur.trim().toLowerCase());
+    if (existeDeja) { toast.error("Cette donnée est déjà dans le panier."); return; }
+    setPanier(prev => [...prev, { tempId: Date.now() + Math.random(), typeDonneeId, typeDonneeNom: typeSelectionne?.nom || "—", sensible: typeSelectionne?.sensible || false, valeur: valeur.trim() }]);
+    setValeur("");
+  };
+
+  const handleEnregistrerTout = async () => {
+    if (disabled || !personne || panier.length === 0) return;
+    setEnvoi(true);
+    let succes = 0; const erreurs = [];
+    for (const ligne of panier) {
+      try {
+        const newDonnee = await apiFetch("/api/donnees", {
+          method: "POST",
+          body: JSON.stringify({ valeur: ligne.valeur, personneId: personne.id, typeDonneeId: parseInt(ligne.typeDonneeId, 10), traitementId: parseInt(selectedTraitement, 10) }),
+        });
+        onDonneeAjoutee(newDonnee); succes++;
+      } catch (e) { erreurs.push(`${ligne.typeDonneeNom} : ${e.message}`); }
+    }
+    setEnvoi(false);
+    if (succes > 0) { toast.success(`${succes} donnée(s) enregistrée(s) et copiée(s) dans l'entrepôt !`); setPanier(erreurs.length ? panier.filter((_, i) => i >= succes) : []); }
+    if (erreurs.length > 0) toast.error(`${erreurs.length} ligne(s) en échec : ${erreurs[0]}`);
+  };
+
+  return (
+    <Card style={{ padding: 28, maxWidth: 620 }}>
+      {disabled && (
+        <div style={{ padding: "10px 14px", background: T.yellowBg, border: `1px solid ${T.yellowBorder}`, borderRadius: 9, display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: T.yellow, marginBottom: 18 }}>
+          <Lock size={13} /> Session clôturée — la saisie est désactivée pour ce traitement.
+        </div>
+      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, opacity: disabled ? 0.5 : 1 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: T.greenBg, border: `1px solid ${T.greenBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <PenLine size={18} color={T.green} />
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary }}>Saisie manuelle d'une donnée</div>
+          <div style={{ fontSize: 12, color: T.textMuted }}>Traitement #{selectedTraitement} — copie automatique dans l'entrepôt</div>
+        </div>
+      </div>
+      <div style={{ opacity: disabled ? 0.4 : 1, pointerEvents: disabled ? "none" : "auto" }}>
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.textSecondary, marginBottom: 6, display: "block" }}>1. Personne concernée <span style={{ color: T.red }}>*</span></label>
+          <PersonnePicker selectedPersonne={personne} onSelect={setPersonne} onClear={() => { setPersonne(null); setPanier([]); }} />
+        </div>
+        <div style={{ opacity: personne ? 1 : 0.45, pointerEvents: personne ? "auto" : "none", transition: "opacity 0.15s" }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.textSecondary, marginBottom: 6, display: "block" }}>2. Donnée à enregistrer</label>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <select value={typeDonneeId} onChange={e => setTypeDonneeId(e.target.value)} disabled={loadingTypes}
+              style={{ padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 12.5, color: T.textPrimary, background: T.grayBg, outline: "none", fontFamily: "inherit", minWidth: 170, cursor: "pointer" }}>
+              {loadingTypes && <option>Chargement…</option>}
+              {typesDonnee.map(t => <option key={t.idTypeDonnee} value={t.idTypeDonnee}>{t.nom}{t.sensible ? " ⚠ sensible" : ""}</option>)}
+            </select>
+            <input type="text" value={valeur} onChange={e => setValeur(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); ajouterAuPanier(); } }}
+              placeholder="Ex: jean@email.com, +226 70 00 00 00..."
+              style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 13, color: T.textPrimary, background: T.grayBg, outline: "none", fontFamily: "inherit" }} />
+            <Btn variant="primary" onClick={ajouterAuPanier} disabled={!valeur.trim() || !typeDonneeId}><ListPlus size={14} /> Ajouter</Btn>
+          </div>
+          {panier.length > 0 && (
+            <div style={{ border: `1px solid ${T.cardBorder}`, borderRadius: 9, overflow: "hidden", marginBottom: 16 }}>
+              {panier.map((l, i) => (
+                <div key={l.tempId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: i < panier.length - 1 ? `1px solid ${T.cardBorder}` : "none", background: T.grayBg }}>
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary }}>{l.valeur}</span>
+                    <span style={{ fontSize: 10, color: T.textMuted }}>· {l.typeDonneeNom}</span>
+                    {l.sensible && <Badge type="sensible" />}
+                  </div>
+                  <button onClick={() => setPanier(prev => prev.filter(x => x.tempId !== l.tempId))} style={{ background: "none", border: "none", cursor: "pointer", color: T.red, padding: 4, display: "flex" }}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <Btn variant="primary" onClick={handleEnregistrerTout} disabled={envoi || panier.length === 0} style={{ minWidth: 220 }}>
+            {envoi ? <><Spinner /> Enregistrement...</> : <><Check size={13} /> Enregistrer {panier.length > 0 ? `${panier.length} donnée(s)` : ""}</>}
+          </Btn>
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+// ═══════════════════════════════════════════════════════
+//  SAISIE MANUELLE — directement dans l'entrepôt (sans traitement)
+// ═══════════════════════════════════════════════════════
+const SaisieManuelleEntrepot = ({ onDonneeAjoutee }) => {
   const [typesDonnee, setTypesDonnee]   = useState([]);
   const [loadingTypes, setLoadingTypes] = useState(true);
   const [personne, setPersonne]         = useState(null);
@@ -1421,7 +1704,6 @@ const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee }) => {
 
   const ajouterAuPanier = () => {
     if (!valeur.trim() || !typeDonneeId) return;
-    // Vérification doublon local dans le panier
     const existeDeja = panier.some(l => l.typeDonneeId === typeDonneeId && l.valeur.toLowerCase() === valeur.trim().toLowerCase());
     if (existeDeja) { toast.error("Cette donnée est déjà dans le panier."); return; }
     setPanier(prev => [...prev, { tempId: Date.now() + Math.random(), typeDonneeId, typeDonneeNom: typeSelectionne?.nom || "—", sensible: typeSelectionne?.sensible || false, valeur: valeur.trim() }]);
@@ -1434,27 +1716,27 @@ const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee }) => {
     let succes = 0; const erreurs = [];
     for (const ligne of panier) {
       try {
-        const newDonnee = await apiFetch("/api/donnees", {
+        const newDonnee = await apiFetch("/api/entrepot", {
           method: "POST",
-          body: JSON.stringify({ valeur: ligne.valeur, personneId: personne.id, typeDonneeId: parseInt(ligne.typeDonneeId, 10), traitementId: parseInt(selectedTraitement, 10) }),
+          body: JSON.stringify({ valeur: ligne.valeur, personneId: personne.id, typeDonneeId: parseInt(ligne.typeDonneeId, 10) }),
         });
         onDonneeAjoutee(newDonnee); succes++;
       } catch (e) { erreurs.push(`${ligne.typeDonneeNom} : ${e.message}`); }
     }
     setEnvoi(false);
-    if (succes > 0) { toast.success(`${succes} donnée(s) enregistrée(s) et copiée(s) dans l'entrepôt !`); setPanier(erreurs.length ? panier.filter((_, i) => i >= succes) : []); }
+    if (succes > 0) { toast.success(`${succes} donnée(s) ajoutée(s) à l'entrepôt !`); setPanier(erreurs.length ? panier.filter((_, i) => i >= succes) : []); }
     if (erreurs.length > 0) toast.error(`${erreurs.length} ligne(s) en échec : ${erreurs[0]}`);
   };
 
   return (
     <Card style={{ padding: 28, maxWidth: 620 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-        <div style={{ width: 40, height: 40, borderRadius: 10, background: T.greenBg, border: `1px solid ${T.greenBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <PenLine size={18} color={T.green} />
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: T.orangeBg, border: `1px solid ${T.orangeBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <PenLine size={18} color={T.orange} />
         </div>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary }}>Saisie manuelle d'une donnée</div>
-          <div style={{ fontSize: 12, color: T.textMuted }}>Traitement #{selectedTraitement} — copie automatique dans l'entrepôt</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary }}>Saisie manuelle vers l'entrepôt</div>
+          <div style={{ fontSize: 12, color: T.textMuted }}>Donnée disponible pour tous les utilisateurs métier, sans traitement associé</div>
         </div>
       </div>
       <div style={{ marginBottom: 18 }}>
@@ -1491,7 +1773,7 @@ const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee }) => {
           </div>
         )}
         <Btn variant="primary" onClick={handleEnregistrerTout} disabled={envoi || panier.length === 0} style={{ minWidth: 220 }}>
-          {envoi ? <><Spinner /> Enregistrement...</> : <><Check size={13} /> Enregistrer {panier.length > 0 ? `${panier.length} donnée(s)` : ""}</>}
+          {envoi ? <><Spinner /> Enregistrement...</> : <><Check size={13} /> Ajouter à l'entrepôt {panier.length > 0 ? `(${panier.length})` : ""}</>}
         </Btn>
       </div>
     </Card>
@@ -1501,7 +1783,7 @@ const SaisieManuelle = ({ selectedTraitement, onDonneeAjoutee }) => {
 // ═══════════════════════════════════════════════════════
 //  IMPORT EXCEL DIRECT DANS TRAITEMENT — avec info CNIB
 // ═══════════════════════════════════════════════════════
-const ImportDirectTraitement = ({ selectedTraitement, onDonneesAjoutees }) => {
+const ImportDirectTraitement = ({ selectedTraitement, onDonneesAjoutees, disabled }) => {
   const [file,    setFile]    = useState(null);
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState(null);
@@ -1510,12 +1792,13 @@ const ImportDirectTraitement = ({ selectedTraitement, onDonneesAjoutees }) => {
   const fileRef = useRef();
 
   const handleFile = (f) => {
+    if (disabled) return;
     if (f && f.name.toLowerCase().endsWith(".xlsx")) setFile(f);
     else toast.error("Fichier .xlsx requis");
   };
 
   const handleImport = async () => {
-    if (!file || !selectedTraitement) return;
+    if (disabled || !file || !selectedTraitement) return;
     setLoading(true); setError("");
     try {
       const formData = new FormData();
@@ -1559,7 +1842,12 @@ const ImportDirectTraitement = ({ selectedTraitement, onDonneesAjoutees }) => {
 
   return (
     <Card style={{ padding: 28, maxWidth: 580 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+      {disabled && (
+        <div style={{ padding: "10px 14px", background: T.yellowBg, border: `1px solid ${T.yellowBorder}`, borderRadius: 9, display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: T.yellow, marginBottom: 18 }}>
+          <Lock size={13} /> Session clôturée — l'import est désactivé pour ce traitement.
+        </div>
+      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, opacity: disabled ? 0.5 : 1 }}>
         <div style={{ width: 40, height: 40, borderRadius: 10, background: T.blueBg, border: `1px solid ${T.blueBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Upload size={18} color={T.blue} />
         </div>
@@ -1569,6 +1857,7 @@ const ImportDirectTraitement = ({ selectedTraitement, onDonneesAjoutees }) => {
         </div>
       </div>
 
+      <div style={{ opacity: disabled ? 0.4 : 1, pointerEvents: disabled ? "none" : "auto" }}>
       {/* Info formats — maintenant avec CNIB explicite */}
       <div style={{ padding: "12px 14px", background: T.blueBg, border: `1px solid ${T.blueBorder}`, borderRadius: 9, marginBottom: 18, fontSize: 12, color: T.textSecondary, lineHeight: 1.7 }}>
         <strong style={{ color: T.blue }}>3 formats acceptés :</strong><br />
@@ -1593,8 +1882,8 @@ const ImportDirectTraitement = ({ selectedTraitement, onDonneesAjoutees }) => {
           onDragOver={e => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
-          onClick={() => fileRef.current.click()}
-          style={{ border: `2px dashed ${dragging ? T.blue : T.cardBorder}`, borderRadius: 12, padding: "40px 20px", textAlign: "center", cursor: "pointer", background: dragging ? T.blueBg : "transparent", transition: "all 0.2s" }}>
+          onClick={() => !disabled && fileRef.current.click()}
+          style={{ border: `2px dashed ${dragging ? T.blue : T.cardBorder}`, borderRadius: 12, padding: "40px 20px", textAlign: "center", cursor: disabled ? "not-allowed" : "pointer", background: dragging ? T.blueBg : "transparent", transition: "all 0.2s" }}>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
           <FileSpreadsheet size={44} color={dragging ? T.blue : T.textMuted} style={{ display: "block", margin: "0 auto 12px", opacity: dragging ? 0.9 : 0.4 }} strokeWidth={1} />
           <div style={{ fontSize: 14, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>Glisser un fichier .xlsx ici</div>
@@ -1620,12 +1909,63 @@ const ImportDirectTraitement = ({ selectedTraitement, onDonneesAjoutees }) => {
           </Btn>
         </div>
       )}
+      </div>
     </Card>
   );
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : DONNÉES
+//  SÉLECTEUR DE COLONNES (types de données à afficher)
+// ═══════════════════════════════════════════════════════
+const SelecteurColonnes = ({ typesDisponibles, colonnesAffichees, onToggle, onToutCocher, onToutDecocher }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+
+  useEffect(() => {
+    const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <Btn onClick={() => setOpen(v => !v)} style={{ fontSize: 12, padding: "7px 12px" }}>
+        <Layers size={12} /> Colonnes ({colonnesAffichees.size}/{typesDisponibles.length}) <ChevronDown size={12} />
+      </Btn>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, width: 260, background: T.cardBg, border: `1px solid ${T.cardBorder}`, borderRadius: 10, boxShadow: "0 12px 28px rgba(0,0,0,0.14)", zIndex: 40, overflow: "hidden" }}>
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.cardBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.grayBg }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: T.textPrimary }}>Types de données à afficher</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={onToutCocher} style={{ background: "none", border: "none", color: T.gold, fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}>Tout</button>
+              <button onClick={onToutDecocher} style={{ background: "none", border: "none", color: T.textMuted, fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}>Aucun</button>
+            </div>
+          </div>
+          <div style={{ maxHeight: 260, overflowY: "auto" }}>
+            {typesDisponibles.length === 0 && (
+              <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>Aucun type de donnée</div>
+            )}
+            {typesDisponibles.map(t => {
+              const checked = colonnesAffichees.has(t.id);
+              return (
+                <div key={t.id} onClick={() => onToggle(t.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer" }}
+                  className="row-hover-light">
+                  {checked ? <CheckSquare size={15} color={T.green} /> : <Square size={15} color={T.textMuted} />}
+                  <span style={{ fontSize: 12, color: T.textPrimary, flex: 1 }}>{t.nom}</span>
+                  {t.sensible && <span title="Sensible" style={{ width: 6, height: 6, borderRadius: "50%", background: T.red, flexShrink: 0 }} />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════
+//  SECTION : DONNÉES — vue pivotée par personne (colonnes = types de données)
 // ═══════════════════════════════════════════════════════
 const SectionDonnees = ({ selectedTraitement, setSection }) => {
   const [tab,     setTab]     = useState("liste");
@@ -1633,6 +1973,11 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
   const [search,  setSearch]  = useState("");
+  const [traitementInfo, setTraitementInfo] = useState(null);
+  const [sessionCloturee, setSessionCloturee] = useState(false);
+  const [colonnesAffichees, setColonnesAffichees] = useState(new Set());
+  const colonnesInitRef = useRef(false);
+  const [exportingFormat, setExportingFormat] = useState(null);
 
   const loadDonnees = useCallback(async () => {
     if (!selectedTraitement) { setLoading(false); return; }
@@ -1644,6 +1989,26 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
 
   useEffect(() => { loadDonnees(); }, [loadDonnees]);
 
+  // Vérifie si la session parente du traitement est clôturée, pour bloquer l'ajout de données
+  useEffect(() => {
+    if (!selectedTraitement) return;
+    colonnesInitRef.current = false;
+    const checkSession = async () => {
+      try {
+        const t = await apiFetch(`/api/traitements/${selectedTraitement}`);
+        setTraitementInfo(t);
+        const sessionId = t.sessionCollecteId || t.session?.idSession;
+        if (sessionId) {
+          const s = await apiFetch(`/api/sessions/${sessionId}`);
+          setSessionCloturee(s.statutSession !== "EN_COURS");
+        } else {
+          setSessionCloturee(false);
+        }
+      } catch { setSessionCloturee(false); }
+    };
+    checkSession();
+  }, [selectedTraitement]);
+
   const handleDonneeAjoutee = (d) => {
     if (d) setDonnees(prev => [d, ...prev]);
     setTab("liste");
@@ -1654,23 +2019,74 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
     setTab("liste");
   };
 
-  const filtered = donnees.filter(d =>
-    (d.valeur || "").toLowerCase().includes(search.toLowerCase()) ||
-    (d.usagerNomComplet || "").toLowerCase().includes(search.toLowerCase()) ||
-    (d.personneNomComplet || "").toLowerCase().includes(search.toLowerCase()) ||
-    (d.typeDonneeNom || "").toLowerCase().includes(search.toLowerCase())
-  );
+  // ─── Types de données disponibles (pour le sélecteur de colonnes) ───
+  const typesDisponibles = (() => {
+    const map = new Map();
+    donnees.forEach(d => { if (d.typeDonneeId != null && !map.has(d.typeDonneeId)) map.set(d.typeDonneeId, { id: d.typeDonneeId, nom: d.typeDonneeNom || "—", sensible: d.typeDonneeSensible }); });
+    return [...map.values()].sort((a, b) => a.nom.localeCompare(b.nom));
+  })();
+
+  useEffect(() => {
+    if (!colonnesInitRef.current && typesDisponibles.length > 0) {
+      setColonnesAffichees(new Set(typesDisponibles.map(t => t.id)));
+      colonnesInitRef.current = true;
+    }
+  }, [typesDisponibles]);
+
+  const toggleColonne = (id) => setColonnesAffichees(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  // ─── Pivot : une ligne par personne, une colonne par type de donnée sélectionné ───
+  const personnesPivot = (() => {
+    const map = new Map();
+    donnees.forEach(d => {
+      const pid = d.personneId ?? `p-${d.personneNomComplet || d.usagerNomComplet || "inconnu"}`;
+      if (!map.has(pid)) map.set(pid, { id: pid, nom: d.personneNomComplet || d.usagerNomComplet || "—", valeurs: {} });
+      const entry = map.get(pid);
+      if (d.typeDonneeId == null) return;
+      if (!entry.valeurs[d.typeDonneeId]) entry.valeurs[d.typeDonneeId] = [];
+      entry.valeurs[d.typeDonneeId].push(d.valeur);
+    });
+    return [...map.values()];
+  })();
+
+  const colonnesSelectionnees = typesDisponibles.filter(t => colonnesAffichees.has(t.id));
+
+  const filteredPersonnes = personnesPivot.filter(p => {
+    if (!search.trim()) return true;
+    const lq = search.toLowerCase();
+    if ((p.nom || "").toLowerCase().includes(lq)) return true;
+    return Object.values(p.valeurs).some(vals => vals.some(v => (v || "").toLowerCase().includes(lq)));
+  });
+
+  const handleExport = async (format) => {
+    if (!traitementInfo) return;
+    setExportingFormat(format);
+    try {
+      if (format === "pdf") exportTraitementPdf(traitementInfo, donnees);
+      else exportTraitementExcel(traitementInfo, donnees);
+    } finally { setExportingFormat(null); }
+  };
 
   const tabs = [
-    { id: "liste",    label: "Liste des données",      Icon: Table2 },
-    { id: "saisie",   label: "Saisie manuelle",        Icon: PenLine },
-    { id: "entrepot", label: "Depuis l'entrepôt",      Icon: Archive },
-    { id: "import",   label: "Import Excel direct",    Icon: FileSpreadsheet },
+    { id: "liste",    label: "Liste des données",      Icon: Table2,          disabled: false },
+    { id: "saisie",   label: "Saisie manuelle",        Icon: PenLine,         disabled: sessionCloturee },
+    { id: "entrepot", label: "Depuis l'entrepôt",      Icon: Archive,         disabled: sessionCloturee },
+    { id: "import",   label: "Import Excel direct",    Icon: FileSpreadsheet, disabled: sessionCloturee },
   ];
 
   return (
     <div className="slide-in">
-      <PageHeader title="Données collectées" subtitle={selectedTraitement ? `Traitement #${selectedTraitement} — ${donnees.length} entrée(s)` : "Sélectionnez un traitement"}>
+      <PageHeader title="Données collectées" subtitle={selectedTraitement ? `Traitement #${selectedTraitement} — ${personnesPivot.length} personne(s), ${donnees.length} entrée(s)` : "Sélectionnez un traitement"}>
+        {selectedTraitement && (
+          <>
+            <Btn onClick={() => handleExport("pdf")} disabled={exportingFormat === "pdf"}>{exportingFormat === "pdf" ? <Spinner dark /> : <FileDown size={13} />} Export PDF</Btn>
+            <Btn onClick={() => handleExport("excel")} disabled={exportingFormat === "excel"}>{exportingFormat === "excel" ? <Spinner dark /> : <FileXls size={13} />} Export Excel</Btn>
+          </>
+        )}
         <Btn onClick={() => setSection("import")}><Upload size={13} /> Import entrepôt</Btn>
       </PageHeader>
 
@@ -1684,11 +2100,19 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
 
       {selectedTraitement && (
         <>
+          {sessionCloturee && (
+            <Card style={{ padding: "10px 16px", marginBottom: 16, background: T.yellowBg, border: `1px solid ${T.yellowBorder}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: T.yellow }}>
+                <Lock size={14} /> La session de ce traitement est clôturée — l'ajout de nouvelles données est désactivé. Vous pouvez toujours consulter et exporter les données existantes.
+              </div>
+            </Card>
+          )}
+
           <div style={{ display: "flex", gap: 4, background: T.grayBg, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: 4, marginBottom: 18, width: "fit-content", flexWrap: "wrap" }}>
             {tabs.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, cursor: "pointer", background: tab === t.id ? T.cardBg : "transparent", color: tab === t.id ? T.textPrimary : T.textMuted, boxShadow: tab === t.id ? T.cardShadow : "none", transition: "all 0.15s" }}>
-                <t.Icon size={14} />
+              <button key={t.id} onClick={() => !t.disabled && setTab(t.id)} disabled={t.disabled}
+                style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, cursor: t.disabled ? "not-allowed" : "pointer", background: tab === t.id ? T.cardBg : "transparent", color: t.disabled ? T.textMuted : tab === t.id ? T.textPrimary : T.textMuted, opacity: t.disabled ? 0.5 : 1, boxShadow: tab === t.id ? T.cardShadow : "none", transition: "all 0.15s" }}>
+                {t.disabled ? <Lock size={13} /> : <t.Icon size={14} />}
                 {t.label}
                 {t.id === "entrepot" && <span style={{ fontSize: 10, background: T.orangeBg, color: T.orange, border: `1px solid ${T.orangeBorder}`, padding: "1px 6px", borderRadius: 8, fontWeight: 700 }}>Stock</span>}
                 {t.id === "import" && <span style={{ fontSize: 10, background: T.blueBg, color: T.blue, border: `1px solid ${T.blueBorder}`, padding: "1px 6px", borderRadius: 8, fontWeight: 700 }}>XLSX</span>}
@@ -1698,49 +2122,68 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
 
           {tab === "liste" && (
             <Card style={{ overflow: "hidden" }}>
-              <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.cardBorder}`, display: "flex", gap: 10 }}>
+              <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.cardBorder}`, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <div style={{ position: "relative", flex: 1, maxWidth: 300 }}>
                   <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textMuted }} />
-                  <input type="text" placeholder="Rechercher…" value={search} onChange={e => setSearch(e.target.value)}
+                  <input type="text" placeholder="Rechercher une personne ou une valeur…" value={search} onChange={e => setSearch(e.target.value)}
                     style={{ paddingLeft: 30, paddingRight: 10, paddingTop: 7, paddingBottom: 7, borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 13, color: T.textPrimary, background: T.cardBg, outline: "none", width: "100%", fontFamily: "inherit" }} />
                 </div>
+                <SelecteurColonnes
+                  typesDisponibles={typesDisponibles}
+                  colonnesAffichees={colonnesAffichees}
+                  onToggle={toggleColonne}
+                  onToutCocher={() => setColonnesAffichees(new Set(typesDisponibles.map(t => t.id)))}
+                  onToutDecocher={() => setColonnesAffichees(new Set())}
+                />
                 <Btn onClick={loadDonnees} style={{ fontSize: 12, padding: "7px 12px" }}><RefreshCw size={12} /> Actualiser</Btn>
               </div>
               {loading && <div style={{ padding: 32, textAlign: "center" }}><Spinner dark /></div>}
               {!loading && error && <div style={{ padding: 16 }}><ErrorBanner message={error} /></div>}
               {!loading && !error && (
-                <>
+                <div style={{ overflowX: "auto" }}>
                   <table style={{ borderCollapse: "collapse", width: "100%" }}>
                     <thead>
                       <tr style={{ background: T.grayBg, borderBottom: `1px solid ${T.cardBorder}` }}>
-                        {["#", "Valeur", "Personne", "Type de donnée", "Sensible", "Traitement", "Date collecte"].map(h => (
-                          <th key={h} style={{ padding: "10px 14px", fontSize: 11, fontWeight: 700, color: T.textMuted, textAlign: "left", letterSpacing: "0.07em", textTransform: "uppercase" }}>{h}</th>
+                        <th style={{ padding: "10px 14px", fontSize: 11, fontWeight: 700, color: T.textMuted, textAlign: "left", letterSpacing: "0.07em", textTransform: "uppercase", position: "sticky", left: 0, background: T.grayBg }}>Personne</th>
+                        {colonnesSelectionnees.map(c => (
+                          <th key={c.id} style={{ padding: "10px 14px", fontSize: 11, fontWeight: 700, color: T.textMuted, textAlign: "left", letterSpacing: "0.05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                            {c.nom} {c.sensible && <span title="Sensible" style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: T.red, marginLeft: 4 }} />}
+                          </th>
                         ))}
+                        <th style={{ padding: "10px 14px", fontSize: 11, fontWeight: 700, color: T.textMuted, textAlign: "left", letterSpacing: "0.07em", textTransform: "uppercase" }}>Total</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((row, i) => (
-                        <tr key={row.idDonnee} className="table-row-hover" style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${T.cardBorder}` : "none" }}>
-                          <td style={{ padding: "11px 14px", fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.textMuted }}>{row.idDonnee}</td>
-                          <td style={{ padding: "11px 14px", fontSize: 13, fontWeight: 600, color: T.textPrimary }}>{row.valeur}</td>
-                          <td style={{ padding: "11px 14px", fontSize: 12, color: T.textSecondary }}>{row.personneNomComplet || row.usagerNomComplet || "—"}</td>
-                          <td style={{ padding: "11px 14px", fontSize: 12, color: T.textSecondary }}>{row.typeDonneeNom || "—"}</td>
-                          <td style={{ padding: "11px 14px" }}>{row.typeDonneeSensible ? <span style={{ fontSize: 11, color: T.red, fontWeight: 600 }}>⚠ Oui</span> : <span style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>Non</span>}</td>
-                          <td style={{ padding: "11px 14px", fontSize: 12, color: T.textSecondary }}>{row.traitementNom || "—"}</td>
-                          <td style={{ padding: "11px 14px", fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>{row.dateCollecte?.split("T")[0] || "—"}</td>
+                      {filteredPersonnes.map((p, i) => (
+                        <tr key={p.id} className="table-row-hover" style={{ borderBottom: i < filteredPersonnes.length - 1 ? `1px solid ${T.cardBorder}` : "none" }}>
+                          <td style={{ padding: "11px 14px", fontSize: 13, fontWeight: 700, color: T.textPrimary, position: "sticky", left: 0, background: T.cardBg, whiteSpace: "nowrap" }}>{p.nom}</td>
+                          {colonnesSelectionnees.map(c => {
+                            const vals = p.valeurs[c.id];
+                            return (
+                              <td key={c.id} style={{ padding: "11px 14px", fontSize: 12, color: T.textSecondary, whiteSpace: "nowrap" }}>
+                                {vals && vals.length > 0 ? vals.join(", ") : <span style={{ color: T.textMuted }}>—</span>}
+                              </td>
+                            );
+                          })}
+                          <td style={{ padding: "11px 14px", fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>
+                            {Object.values(p.valeurs).reduce((a, v) => a + v.length, 0)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {filtered.length === 0 && <div style={{ padding: 32, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun résultat</div>}
-                </>
+                  {filteredPersonnes.length === 0 && <div style={{ padding: 32, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun résultat</div>}
+                  {colonnesSelectionnees.length === 0 && typesDisponibles.length > 0 && (
+                    <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>Aucune colonne sélectionnée — utilisez le bouton "Colonnes" pour en afficher.</div>
+                  )}
+                </div>
               )}
             </Card>
           )}
 
-          {tab === "saisie" && <SaisieManuelle selectedTraitement={selectedTraitement} onDonneeAjoutee={handleDonneeAjoutee} />}
-          {tab === "entrepot" && <DepuisEntrepot selectedTraitement={selectedTraitement} onDonneeAjoutee={handleDonneeAjoutee} />}
-          {tab === "import" && <ImportDirectTraitement selectedTraitement={selectedTraitement} onDonneesAjoutees={handleImportDirect} />}
+          {tab === "saisie" && <SaisieManuelle selectedTraitement={selectedTraitement} onDonneeAjoutee={handleDonneeAjoutee} disabled={sessionCloturee} />}
+          {tab === "entrepot" && <DepuisEntrepot selectedTraitement={selectedTraitement} onDonneeAjoutee={handleDonneeAjoutee} disabled={sessionCloturee} />}
+          {tab === "import" && <ImportDirectTraitement selectedTraitement={selectedTraitement} onDonneesAjoutees={handleImportDirect} disabled={sessionCloturee} />}
         </>
       )}
     </div>
@@ -1748,9 +2191,10 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : ENTREPÔT
+//  SECTION : ENTREPÔT — liste + saisie manuelle
 // ═══════════════════════════════════════════════════════
 const SectionEntrepot = ({ setSection }) => {
+  const [tab, setTab] = useState("liste");
   const [entrepot, setEntrepot] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [search,   setSearch]   = useState("");
@@ -1768,6 +2212,8 @@ const SectionEntrepot = ({ setSection }) => {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleDonneeAjoutee = () => { load(); setTab("liste"); };
 
   const filtered = entrepot.filter(d => {
     const lq = search.toLowerCase();
@@ -1789,7 +2235,7 @@ const SectionEntrepot = ({ setSection }) => {
   return (
     <div className="slide-in">
       <PageHeader title="Entrepôt de données" subtitle="Données importées — visibles par tous les utilisateurs métier">
-        <Btn onClick={() => setSection("import")} variant="orange"><Upload size={13} /> Alimenter l'entrepôt</Btn>
+        <Btn onClick={() => setSection("import")} variant="orange"><Upload size={13} /> Alimenter par Excel</Btn>
         <Btn onClick={load}><RefreshCw size={13} /></Btn>
       </PageHeader>
 
@@ -1812,63 +2258,84 @@ const SectionEntrepot = ({ setSection }) => {
       <Card style={{ padding: "12px 16px", marginBottom: 16, background: T.orangeBg, border: `1px solid ${T.orangeBorder}` }}>
         <div style={{ display: "flex", gap: 10, fontSize: 12, color: T.orange }}>
           <Info size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>Ces données sont accessibles à <strong>tous les utilisateurs métier</strong>. Elles peuvent être rattachées à n'importe quel traitement via l'onglet <strong>Depuis l'entrepôt</strong>.</span>
+          <span>Ces données sont accessibles à <strong>tous les utilisateurs métier</strong>. Elles peuvent être rattachées à n'importe quel traitement via l'onglet <strong>Depuis l'entrepôt</strong>, ou ajoutées ici directement par saisie manuelle.</span>
         </div>
       </Card>
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
-          <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textMuted }} />
-          <input type="text" placeholder="Rechercher dans l'entrepôt..." value={search} onChange={e => setSearch(e.target.value)}
-            style={{ width: "100%", paddingLeft: 30, paddingRight: 10, paddingTop: 8, paddingBottom: 8, borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 13, color: T.textPrimary, background: T.cardBg, outline: "none", fontFamily: "inherit" }} />
-        </div>
-        <select value={filtreType} onChange={e => setFiltreType(e.target.value)}
-          style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 13, color: T.textSecondary, background: T.cardBg, outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
-          <option value="all">Tous les types</option>
-          {types.map(t => <option key={t.idTypeDonnee} value={String(t.idTypeDonnee)}>{t.nom}</option>)}
-        </select>
+      <div style={{ display: "flex", gap: 4, background: T.grayBg, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: 4, marginBottom: 16, width: "fit-content" }}>
+        {[
+          { id: "liste",  label: "Liste de l'entrepôt", Icon: Table2 },
+          { id: "saisie", label: "Saisie manuelle",     Icon: PenLine },
+        ].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, cursor: "pointer", background: tab === t.id ? T.cardBg : "transparent", color: tab === t.id ? T.textPrimary : T.textMuted, boxShadow: tab === t.id ? T.cardShadow : "none", transition: "all 0.15s" }}>
+            <t.Icon size={14} /> {t.label}
+          </button>
+        ))}
       </div>
 
-      <Card style={{ overflow: "hidden" }}>
-        {loading && <div style={{ padding: 32, textAlign: "center" }}><Spinner dark /></div>}
-        {!loading && entrepot.length === 0 && (
-          <div style={{ padding: 48, textAlign: "center" }}>
-            <PackageOpen size={40} color={T.textMuted} style={{ margin: "0 auto 14px", display: "block", opacity: 0.35 }} />
-            <p style={{ color: T.textMuted, fontSize: 13, marginBottom: 16 }}>L'entrepôt est vide pour le moment.</p>
-            <Btn variant="primary" onClick={() => setSection("import")}><Upload size={13} /> Importer un fichier Excel</Btn>
-          </div>
-        )}
-        {!loading && entrepot.length > 0 && (
-          <>
-            <table style={{ borderCollapse: "collapse", width: "100%" }}>
-              <thead>
-                <tr style={{ background: T.grayBg, borderBottom: `1px solid ${T.cardBorder}` }}>
-                  {["#", "Personne", "Valeur", "Type de donnée", "Sensible", "Date d'import"].map(h => (
-                    <th key={h} style={{ padding: "10px 14px", fontSize: 11, fontWeight: 700, color: T.textMuted, textAlign: "left", letterSpacing: "0.07em", textTransform: "uppercase" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((row, i) => (
-                  <tr key={row.idDonnee} className="table-row-hover" style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${T.cardBorder}` : "none" }}>
-                    <td style={{ padding: "11px 14px", fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.textMuted }}>{row.idDonnee}</td>
-                    <td style={{ padding: "11px 14px", fontSize: 13, fontWeight: 600, color: T.textPrimary }}>{row.personneNomComplet || "—"}</td>
-                    <td style={{ padding: "11px 14px", fontSize: 12, color: T.textSecondary }}>{row.valeur}</td>
-                    <td style={{ padding: "11px 14px", fontSize: 12, color: T.textSecondary }}>{row.typeDonneeNom || "—"}</td>
-                    <td style={{ padding: "11px 14px" }}>{row.typeDonneeSensible ? <Badge type="sensible" /> : <span style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>Non</span>}</td>
-                    <td style={{ padding: "11px 14px", fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>{row.dateCollecte?.split("T")[0] || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {filtered.length === 0 && <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun résultat pour « {search} »</div>}
-            <div style={{ padding: "10px 16px", background: T.grayBg, borderTop: `1px solid ${T.cardBorder}`, fontSize: 12, color: T.textMuted, display: "flex", justifyContent: "space-between" }}>
-              <span>{filtered.length} entrée(s) sur {entrepot.length}</span>
-              <span style={{ color: T.orange, fontWeight: 600 }}>Partagé entre tous les utilisateurs métier</span>
+      {tab === "saisie" && <SaisieManuelleEntrepot onDonneeAjoutee={handleDonneeAjoutee} />}
+
+      {tab === "liste" && (
+        <>
+          <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+            <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
+              <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textMuted }} />
+              <input type="text" placeholder="Rechercher dans l'entrepôt..." value={search} onChange={e => setSearch(e.target.value)}
+                style={{ width: "100%", paddingLeft: 30, paddingRight: 10, paddingTop: 8, paddingBottom: 8, borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 13, color: T.textPrimary, background: T.cardBg, outline: "none", fontFamily: "inherit" }} />
             </div>
-          </>
-        )}
-      </Card>
+            <select value={filtreType} onChange={e => setFiltreType(e.target.value)}
+              style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.cardBorder}`, fontSize: 13, color: T.textSecondary, background: T.cardBg, outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
+              <option value="all">Tous les types</option>
+              {types.map(t => <option key={t.idTypeDonnee} value={String(t.idTypeDonnee)}>{t.nom}</option>)}
+            </select>
+          </div>
+
+          <Card style={{ overflow: "hidden" }}>
+            {loading && <div style={{ padding: 32, textAlign: "center" }}><Spinner dark /></div>}
+            {!loading && entrepot.length === 0 && (
+              <div style={{ padding: 48, textAlign: "center" }}>
+                <PackageOpen size={40} color={T.textMuted} style={{ margin: "0 auto 14px", display: "block", opacity: 0.35 }} />
+                <p style={{ color: T.textMuted, fontSize: 13, marginBottom: 16 }}>L'entrepôt est vide pour le moment.</p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                  <Btn variant="primary" onClick={() => setSection("import")}><Upload size={13} /> Importer un fichier Excel</Btn>
+                  <Btn onClick={() => setTab("saisie")}><PenLine size={13} /> Saisie manuelle</Btn>
+                </div>
+              </div>
+            )}
+            {!loading && entrepot.length > 0 && (
+              <>
+                <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                  <thead>
+                    <tr style={{ background: T.grayBg, borderBottom: `1px solid ${T.cardBorder}` }}>
+                      {["#", "Personne", "Valeur", "Type de donnée", "Sensible", "Date d'import"].map(h => (
+                        <th key={h} style={{ padding: "10px 14px", fontSize: 11, fontWeight: 700, color: T.textMuted, textAlign: "left", letterSpacing: "0.07em", textTransform: "uppercase" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((row, i) => (
+                      <tr key={row.idDonnee} className="table-row-hover" style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${T.cardBorder}` : "none" }}>
+                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.textMuted }}>{row.idDonnee}</td>
+                        <td style={{ padding: "11px 14px", fontSize: 13, fontWeight: 600, color: T.textPrimary }}>{row.personneNomComplet || "—"}</td>
+                        <td style={{ padding: "11px 14px", fontSize: 12, color: T.textSecondary }}>{row.valeur}</td>
+                        <td style={{ padding: "11px 14px", fontSize: 12, color: T.textSecondary }}>{row.typeDonneeNom || "—"}</td>
+                        <td style={{ padding: "11px 14px" }}>{row.typeDonneeSensible ? <Badge type="sensible" /> : <span style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>Non</span>}</td>
+                        <td style={{ padding: "11px 14px", fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>{row.dateCollecte?.split("T")[0] || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filtered.length === 0 && <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun résultat pour « {search} »</div>}
+                <div style={{ padding: "10px 16px", background: T.grayBg, borderTop: `1px solid ${T.cardBorder}`, fontSize: 12, color: T.textMuted, display: "flex", justifyContent: "space-between" }}>
+                  <span>{filtered.length} entrée(s) sur {entrepot.length}</span>
+                  <span style={{ color: T.orange, fontWeight: 600 }}>Partagé entre tous les utilisateurs métier</span>
+                </div>
+              </>
+            )}
+          </Card>
+        </>
+      )}
     </div>
   );
 };
@@ -2133,6 +2600,8 @@ const SectionDemandes = ({ userId }) => {
       )}
 
       <PageHeader title="Demandes citoyens" subtitle="Demandes de modification ou suppression de données personnelles">
+        <Btn onClick={() => exportDemandesPdf(filtered)}><FileDown size={13} /> Export PDF</Btn>
+        <Btn onClick={() => exportDemandesExcel(filtered)}><FileXls size={13} /> Export Excel</Btn>
         <Btn onClick={load}><RefreshCw size={13} /></Btn>
       </PageHeader>
 
