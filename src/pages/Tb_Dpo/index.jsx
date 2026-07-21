@@ -950,10 +950,7 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const upd = (k,v) => setF(p => ({...p,[k]:v}));
-<<<<<<< HEAD
   // const isEdit = mode === "edit";
-=======
->>>>>>> c46bbf060922fd75491a5f34f53b9335f045a434
 
   const typeMap = { NORMALE:ETAPES_NORMALE, COLLECTE_SITE:ETAPES_SITE, VIDEO_SURVEILLANCE:ETAPES_VIDEO, AUTORISATION:ETAPES_AUTO };
   const etapes = typeMap[f.typeDeclaration] || ETAPES_NORMALE;
