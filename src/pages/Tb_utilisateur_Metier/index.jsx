@@ -2121,7 +2121,7 @@ const SectionDonnees = ({ selectedTraitement, setSection }) => {
           </div>
 
           {tab === "liste" && (
-            <Card style={{ overflow: "hidden" }}>
+            <Card style={{ overflow: "h" }}>
               <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.cardBorder}`, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <div style={{ position: "relative", flex: 1, maxWidth: 300 }}>
                   <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textMuted }} />

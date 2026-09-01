@@ -241,10 +241,6 @@ const PanneauNotifications = ({ userId, onClose, onCountChange }) => {
 
 // ═══════════════════════════════════════════════════════
 //  TOPBAR
-//  Correction : la cloche ne doit plus se "réactiver" toute seule après
-//  ouverture. On garde une ref partagée (notifsOpenRef) qui empêche le
-//  polling parent de réécrire notifCount tant que le panneau est ouvert,
-//  et on relance un fetch propre à la fermeture pour resynchroniser.
 // ═══════════════════════════════════════════════════════
 const TopBar = ({ onToggle, userId, notifCount, setNotifCount, dpoInfo, notifsOpenRef, onPanelClose }) => {
   const [showNotifs, setShowNotifs] = useState(false);
@@ -395,17 +391,6 @@ const ModalCreerSession = ({ onClose, onSave }) => {
 
 // ═══════════════════════════════════════════════════════
 //  MODALE : MODIFIER SESSION
-//  NOTE IMPORTANTE (Elvis) : le code ci-dessous est correct côté frontend
-//  (PUT /sessions/{id} avec le payload attendu). Si la modification "ne
-//  passe toujours pas", le blocage vient très probablement du backend :
-//  soit l'endpoint PUT n'existe pas encore côté SessionController, soit
-//  la vérification de verrouillage de session (que tu as ajoutée pour
-//  empêcher d'ajouter des traitements à une session TERMINEE/ANNULEE) a
-//  été placée dans SessionService.update() au lieu d'être limitée à
-//  l'ajout de traitement — ce qui bloquerait aussi la modification du
-//  nom/lieu/description d'une session déjà terminée.
-//  J'ai ajouté un console.error pour t'aider à voir la vraie réponse HTTP
-//  dans la console si ça échoue encore.
 // ═══════════════════════════════════════════════════════
 const ModalModifierSession = ({ session, onClose, onSave }) => {
   const toDateInput = (iso) => iso ? iso.split("T")[0] : "";
@@ -533,7 +518,6 @@ const ModalDonnees = ({ traitement, onClose }) => {
     load();
   }, [traitement.idTraitement]);
 
-  // Colonnes dynamiques à partir des clés présentes dans les données
   const columns = (() => {
     const keys = new Set();
     donnees.forEach(d => Object.keys(d).forEach(k => { if (k!=="idDonnee" && k!=="traitementId") keys.add(k); }));
@@ -846,7 +830,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
   const isEdit = mode === "edit" && !!declaration?.idDeclaration;
 
   const init = {
-    // Identification (étape 0)
     responsableDeclaration:  declaration?.responsableDeclaration  || "",
     contactConfidentialite:  declaration?.contactConfidentialite  || "",
     secteur:                 declaration?.secteur                 || "",
@@ -857,7 +840,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
     categoriesDonnees:       declaration?.categoriesDonnees       || "",
     origineDonnees:          declaration?.origineDonnees          || "",
     typeDeclaration:         declaration?.typeDeclaration         || "NORMALE",
-    // Sécurité
     mesuresSecurite:         declaration?.mesuresSecurite         || "",
     politiqueAccesBatiments: declaration?.politiqueAccesBatiments || false,
     mesuresSensibilisation:  declaration?.mesuresSensibilisation  || false,
@@ -873,7 +855,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
     transfertPaysEtranger:   declaration?.transfertPaysEtranger   || false,
     paysDestination:         declaration?.paysDestination         || "",
     garantiesProtectionEtranger: declaration?.garantiesProtectionEtranger || "",
-    // Droits
     moyensInformationDroits: declaration?.moyensInformationDroits || "",
     moyensExerciceDroits:    declaration?.moyensExerciceDroits    || "",
     coordonneesExerciceDroits: declaration?.coordonneesExerciceDroits || "",
@@ -883,7 +864,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
     serviceResponsable:      declaration?.serviceResponsable      || "",
     dateSignature:           declaration?.dateSignature           || "",
     lieuSignature:           declaration?.lieuSignature            || "",
-    // Normale
     denominationTraitement:  declaration?.denominationTraitement  || "",
     finaliteTraitement:      declaration?.finaliteTraitement      || traitement?.description || "",
     texteJuridique:          declaration?.texteJuridique          || "",
@@ -898,7 +878,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
     descriptionProcedureManuelle: declaration?.descriptionProcedureManuelle || false,
     caracteristiquesTechniques: declaration?.caracteristiquesTechniques || "",
     motifsInterconnexion:    declaration?.motifsInterconnexion    || "",
-    // Site internet
     urlSite:                 declaration?.urlSite                 || "",
     caracteristiquesMainStructure: declaration?.caracteristiquesMainStructure || "",
     donneesConnexion:        declaration?.donneesConnexion        || false,
@@ -911,7 +890,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
     formulairesEnLigne:      declaration?.formulairesEnLigne      || false,
     donneesFormulaires:      declaration?.donneesFormulaires      || "",
     telechargementTraitement: declaration?.telechargementTraitement || "",
-    // Vidéosurveillance
     finalites:               declaration?.finalites               || "",
     adresseInstallation:     declaration?.adresseInstallation     || "",
     natureEnvironnement:     declaration?.natureEnvironnement     || "",
@@ -927,7 +905,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
     modalitesAccesDistance:  declaration?.modalitesAccesDistance  || "",
     personnesHabilitees:     declaration?.personnesHabilitees     || "",
     localisationPictogrammes: declaration?.localisationPictogrammes || "",
-    // Autorisation
     fonctionnalitesSysteme:  declaration?.fonctionnalitesSysteme  || "",
     certificationSecurite:   declaration?.certificationSecurite   || traitement?.certificationSecurite || "",
     traitementDonneesSante:  declaration?.traitementDonneesSante  || false,
@@ -950,7 +927,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const upd = (k,v) => setF(p => ({...p,[k]:v}));
-  // const isEdit = mode === "edit";
 
   const typeMap = { NORMALE:ETAPES_NORMALE, COLLECTE_SITE:ETAPES_SITE, VIDEO_SURVEILLANCE:ETAPES_VIDEO, AUTORISATION:ETAPES_AUTO };
   const etapes = typeMap[f.typeDeclaration] || ETAPES_NORMALE;
@@ -1049,14 +1025,11 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
 
     try {
       if (isEdit) {
-        // ── ÉDITION : PUT sur la déclaration existante ──────────────────
         const url = `${BASE}/declarations/${declaration.idDeclaration}/${suffix}`;
         const r = await fetch(url, { method:"PUT", headers:authH(), body:JSON.stringify(buildPayload()) });
         if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
         let data = await r.json();
 
-        // Si la déclaration avait été rejetée (DG ou CIL), on la renvoie
-        // automatiquement dans le circuit (statut → EN_ATTENTE, pour le DG).
         const etaitRejetee = estRejetee(declaration.statut);
         if (etaitRejetee) {
           const rs = await fetch(`${BASE}/declarations/${declaration.idDeclaration}/soumettre`, { method:"PUT", headers:authH() });
@@ -1068,7 +1041,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
         }
         onSave(data); onClose();
       } else {
-        // ── CRÉATION : POST ──────────────────────────────────────────────
         const endpointMap = {
           NORMALE:"/declarations/normale",
           COLLECTE_SITE:"/declarations/collecte-site",
@@ -1098,7 +1070,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
         <ChampsCommuns1 f={f} upd={upd}/>
       </div>
     );
-    // Étapes spécifiques selon type
     if (f.typeDeclaration==="NORMALE" && (etape===1||etape===2))
       return <FormulaireNormale f={f} upd={upd} etape={etape}/>;
     if (f.typeDeclaration==="COLLECTE_SITE" && (etape===1||etape===2))
@@ -1107,7 +1078,6 @@ const ModalDeclaration = ({ traitement, declaration, mode="create", onClose, onS
       return <FormulaireVideo f={f} upd={upd} etape={etape}/>;
     if (f.typeDeclaration==="AUTORISATION" && (etape===1||etape===2||etape===3))
       return <FormulaireAutorisation f={f} upd={upd} etape={etape}/>;
-    // Étapes communes finales
     if (etape===etapes.length-2) return <ChampsSécurité f={f} upd={upd}/>;
     if (etape===etapes.length-1) return <ChampsDroits f={f} upd={upd}/>;
     return null;
@@ -1315,10 +1285,9 @@ const exportExcel = (filename, sheetName, rows) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : TABLEAU DE BORD — sans bandeau workflow
+//  SECTION : TABLEAU DE BORD
 // ═══════════════════════════════════════════════════════
 const SectionDashboard = ({ sessions, declarations, setSection, dpoInfo }) => {
-  // Déclarations manuelles uniquement (créées par le DPO via "Déclarer")
   const declsManuelles = declarations.filter(estDeclarationManuelle);
   const actives      = sessions.filter(s => s.statutSession==="EN_COURS");
   const enAttenteDG  = declsManuelles.filter(d => d.statut==="EN_ATTENTE" || d.statut==="EN_ATTENTE_DG");
@@ -1335,7 +1304,6 @@ const SectionDashboard = ({ sessions, declarations, setSection, dpoInfo }) => {
     <div className="slide-in">
       <PageHeader title="Tableau de bord DPO" subtitle={`Bonjour ${dpoInfo?.prenom||"DPO"} — ${new Date().toLocaleDateString("fr-FR",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}`}/>
 
-      {/* Statistiques */}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:14,marginBottom:20 }}>
         {stats.map((s,i) => (
           <Card key={i} style={{ padding:"18px 20px",position:"relative",overflow:"hidden" }}>
@@ -1497,8 +1465,6 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo, 
   const [filterSession, setFilterSession] = useState(initialSessionId ? String(initialSessionId) : "all");
   const [search,        setSearch]        = useState("");
 
-  // Si on arrive depuis "Voir traitements" (bouton d'une session précise),
-  // on présélectionne automatiquement cette session dans le filtre.
   useEffect(() => {
     if (initialSessionId) setFilterSession(String(initialSessionId));
   }, [initialSessionId]);
@@ -1521,8 +1487,6 @@ const SectionTraitements = ({ declarations, setDeclarations, sessions, dpoInfo, 
 
   useEffect(() => { load(); }, [load]);
 
-  // Déclarations manuelles uniquement (créées par le DPO) — celles auto-créées
-  // en BROUILLON avec le traitement ne comptent jamais comme "déjà déclaré".
   const hasDeclared = (tId) => declarations.some(d => d.traitementId===tId && estDeclarationManuelle(d));
   const getDeclOf = (tId) => declarations.find(d => d.traitementId===tId && estDeclarationManuelle(d));
 
@@ -1648,9 +1612,6 @@ const TraitementCard = ({ t, sessionInfo, hasDeclared, getDeclOf, setShowDecl, s
       </div>
       {t.envoyeAuDpo && <div style={{ fontSize:11,color:T.green,marginBottom:8,display:"flex",alignItems:"center",gap:4 }}><CheckCircle2 size={11}/> Envoyé au DPO le {t.dateEnvoiDpo?.split("T")[0]}</div>}
       <div style={{ display:"flex",alignItems:"center",gap:8,borderTop:`1px solid ${T.cardBorder}`,paddingTop:10,flexWrap:"wrap" }}>
-        {/* Le badge "En attente" disparaît dès que le traitement est déclaré :
-            on n'affiche un badge ici que si la déclaration a déjà été résolue
-            (approuvée ou rejetée) par la DG/CIL. */}
         {declared && decl && decl.statut!=="EN_ATTENTE" && decl.statut!=="EN_ATTENTE_DG" && <Badge type={decl.statut}/>}
         <div style={{ flex:1 }}/>
         <Btn onClick={() => setShowDonnees(t)} style={{ fontSize:11,padding:"5px 10px" }}><Database size={12}/> Données</Btn>
@@ -1668,18 +1629,15 @@ const TraitementCard = ({ t, sessionInfo, hasDeclared, getDeclOf, setShowDecl, s
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : DÉCLARATIONS — manuelles uniquement
-//  Filtres : En attente DG | Approuvées DG | Rejetées DG
-//  + Modifier / Corriger et renvoyer une déclaration rejetée
-//  + Affiche maintenant #ID ET le nom du traitement lié
+//  SECTION : DÉCLARATIONS
 // ═══════════════════════════════════════════════════════
 const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
   const [filter,      setFilter]      = useState("all");
   const [loading,     setLoading]     = useState(true);
   const [exportingId, setExportingId] = useState(null);
-  const [editTarget,  setEditTarget]  = useState(null);   // { declaration, traitement }
+  const [editTarget,  setEditTarget]  = useState(null);
   const [loadingEditId, setLoadingEditId] = useState(null);
-  const [traitementsMap, setTraitementsMap] = useState({}); // { idTraitement: nomAffiche }
+  const [traitementsMap, setTraitementsMap] = useState({});
 
   const load = useCallback(async () => {
     if (!dpoInfo?.id) return;
@@ -1688,8 +1646,6 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
       const r = await fetch(`${BASE}/declarations/mes-declarations?dpoId=${dpoInfo.id}`, { headers:authH() });
       if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`Erreur ${r.status}`); }
       const all = await r.json();
-      // Le backend filtre déjà sur origineDeclaration === MANUELLE, mais on
-      // applique le filtre côté front aussi par sécurité (défense en profondeur).
       setDeclarations(all.filter(estDeclarationManuelle));
     } catch(e) { toast.error(e.message); }
     finally { setLoading(false); }
@@ -1697,8 +1653,6 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
 
   useEffect(() => { load(); }, [load]);
 
-  // Charge la liste des traitements une fois, pour afficher leur nom
-  // à côté du numéro dans la liste des déclarations.
   useEffect(() => {
     const loadTraitements = async () => {
       try {
@@ -1732,8 +1686,6 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
     setExportingId(null);
   };
 
-  // Ouvre la modale d'édition : récupère le traitement lié pour le contexte
-  // d'affichage (nom, durée de conservation…) puis ouvre ModalDeclaration en mode "edit".
   const handleEdit = async (decl) => {
     setLoadingEditId(decl.idDeclaration);
     let trait = null;
@@ -1758,14 +1710,12 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
     return <Clock size={16} color={T.yellow}/>;
   };
 
-  // Nom du traitement lié à une déclaration, formaté "#ID — Nom"
   const traitementLabel = (d) => {
     if (!d.traitementId) return "—";
     const nom = traitementsMap[d.traitementId];
     return nom ? `#${d.traitementId} — ${nom}` : `#${d.traitementId}`;
   };
 
-  // 3 compteurs uniquement (CIL retiré)
   const stats = [
     { label:"En attente DG", value:declarations.filter(d=>d.statut==="EN_ATTENTE"||d.statut==="EN_ATTENTE_DG").length, color:T.yellow, id:"EN_ATTENTE" },
     { label:"Approuvées DG", value:declarations.filter(d=>d.statut==="APPROUVEE_DG"||d.statut==="APPROUVEE").length,   color:T.green,  id:"APPROUVEE" },
@@ -1795,7 +1745,6 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
         <Btn variant="outline" onClick={load}><RefreshCw size={13}/> Rafraîchir</Btn>
       </PageHeader>
 
-      {/* 3 compteurs workflow */}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20 }}>
         {stats.map(s => (
           <Card key={s.id} style={{ padding:"14px 18px",cursor:"pointer",border:filter===s.id?`2px solid ${s.color}`:`1px solid ${T.cardBorder}` }} onClick={() => setFilter(filter===s.id?"all":s.id)}>
@@ -1873,7 +1822,7 @@ const SectionDeclarations = ({ declarations, setDeclarations, dpoInfo }) => {
 };
 
 // ═══════════════════════════════════════════════════════
-//  SECTION : RAPPORTS & EXPORT — CSV + Excel + PDF
+//  SECTION : RAPPORTS & EXPORT
 // ═══════════════════════════════════════════════════════
 const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
   const [loading, setLoading] = useState({});
@@ -1881,7 +1830,6 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
 
   const declsManuelles = declarations.filter(estDeclarationManuelle);
 
-  // ── SESSIONS ──────────────────────────────────────────
   const rapportSessionsExcel = () => {
     setLoad("sessionsXlsx",true);
     exportExcel(`sessions_dpo_${new Date().toISOString().slice(0,10)}.xlsx`, "Sessions",
@@ -1903,7 +1851,6 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
     );
   };
 
-  // ── DÉCLARATIONS ──────────────────────────────────────
   const rapportDeclarationsExcel = () => {
     setLoad("declarationsXlsx",true);
     exportExcel(`declarations_manuelles_${new Date().toISOString().slice(0,10)}.xlsx`, "Déclarations",
@@ -1925,7 +1872,6 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
     );
   };
 
-  // ── TRAITEMENTS ───────────────────────────────────────
   const fetchEnvoyesDpo = async () => {
     const r = await fetch(`${BASE}/traitements`, { headers:authH() });
     const traitements = r.ok ? await r.json() : [];
@@ -1961,7 +1907,6 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
     finally { setLoad("traitementsPdf",false); }
   };
 
-  // ── PDF déclaration individuelle (dernière déclaration manuelle) ──────
   const rapportPDFDerniere = async () => {
     if (declsManuelles.length===0) { toast.error("Aucune déclaration manuelle à exporter"); return; }
     setLoad("pdfDerniere",true);
@@ -1978,7 +1923,6 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
     { label:"En attente DG",    value:declsManuelles.filter(d=>d.statut==="EN_ATTENTE"||d.statut==="EN_ATTENTE_DG").length, color:T.yellow, bg:T.yellowBg },
   ];
 
-  // Chaque carte propose 2 formats : Excel (Microsoft Office) / PDF
   const exportCards = [
     { title:"Sessions",          desc:"Toutes les sessions avec statuts, lieux et nombre de traitements associés.",
       Icon:FolderOpen, color:T.blue, bg:T.blueBg,
@@ -2033,7 +1977,6 @@ const SectionRapports = ({ sessions, declarations, dpoInfo }) => {
           </Card>
         ))}
 
-        {/* Carte dédiée : PDF détaillé de la dernière déclaration manuelle */}
         <Card className="card-hover" style={{ padding:22 }}>
           <div style={{ width:46,height:46,borderRadius:12,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",color:T.gold,marginBottom:14 }}><Download size={20} strokeWidth={1.6}/></div>
           <div style={{ fontSize:14,fontWeight:700,color:T.textPrimary,marginBottom:5 }}>PDF Déclaration détaillée</div>
@@ -2086,16 +2029,9 @@ export default function Tb_Dpo() {
   const [sessions,     setSessions]     = useState([]);
   const [declarations, setDeclarations] = useState([]);
   const [notifCount,   setNotifCount]   = useState(0);
-  // Session cliquée via "Voir traitements" — présélectionnée dans la section Traitements
   const [selectedSessionId, setSelectedSessionId] = useState(null);
-
-  // Empêche le polling de réécrire notifCount pendant que le panneau
-  // de notifications est ouvert (corrige le badge qui "revenait" après ouverture).
   const notifsOpenRef = useRef(false);
 
-  // Suivi des déclarations "vues" pour que le badge rouge de la sidebar
-  // se remette à zéro une fois la section "Déclarations" consultée,
-  // même si elles restent EN_ATTENTE côté backend. Persisté en localStorage.
   const [declSeenIds, setDeclSeenIds] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem("declSeenIds")||"[]")); } catch { return new Set(); }
   });
@@ -2106,6 +2042,53 @@ export default function Tb_Dpo() {
     const p = parseJwt(token);
     return { nom:localStorage.getItem("dpoNom")||p.nom||"DPO", prenom:localStorage.getItem("dpoPrenom")||p.prenom||"", id:p.userId||null };
   });
+
+  // ═══════════════════════════════════════════════════════
+  //  ★★★ CORRECTIF ★★★
+  //  PROBLÈME : le Dashboard affichait des données vides au premier
+  //  chargement, et il fallait naviguer vers "Sessions" ou "Déclarations"
+  //  puis revenir pour voir les vraies données.
+  //
+  //  CAUSE : sessions/declarations démarraient à [] ici, et seuls les
+  //  composants SectionSessions et SectionDeclarations faisaient un fetch
+  //  (dans leur propre useEffect, à LEUR montage). Tant qu'on ne visitait
+  //  pas ces onglets, le state parent restait vide — et donc le Dashboard,
+  //  qui ne fait QUE lire les props sessions/declarations sans jamais les
+  //  charger lui-même, restait vide aussi.
+  //
+  //  SOLUTION : charger sessions + declarations ICI, dans le composant
+  //  racine, dès le montage — indépendamment de l'onglet actif. Les
+  //  useEffect internes de SectionSessions/SectionDeclarations continuent
+  //  d'exister (utiles pour le bouton "Rafraîchir"), mais ne sont plus
+  //  responsables du premier chargement.
+  // ═══════════════════════════════════════════════════════
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSessions = async () => {
+      try {
+        const r = await fetch(`${BASE}/sessions`, { headers: authH() });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled) setSessions(data);
+      } catch {}
+    };
+
+    const loadDeclarations = async () => {
+      if (!dpoInfo.id) return;
+      try {
+        const r = await fetch(`${BASE}/declarations/mes-declarations?dpoId=${dpoInfo.id}`, { headers: authH() });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled) setDeclarations(data.filter(estDeclarationManuelle));
+      } catch {}
+    };
+
+    loadSessions();
+    loadDeclarations();
+    return () => { cancelled = true; };
+  }, [dpoInfo.id]);
+  // ═══════════════════════════════════════════════════════
 
   const fetchNotifCount = useCallback(async () => {
     if (!dpoInfo.id || notifsOpenRef.current) return;
